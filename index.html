@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Villa Project Viewer - APS Integration</title>
+  
+  <!-- APS Viewer CSS -->
+  <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css">
+  
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <h1>🏗️ Villa Project Viewer</h1>
+    <div class="header-actions">
+      <div id="authStatus" class="auth-status">
+        <span id="authStatusText">Not logged in</span>
+        <button id="loginBtn" class="btn btn-success">Login to Autodesk</button>
+        <button id="logoutBtn" class="btn btn-secondary" style="display: none;">Logout</button>
+      </div>
+      <button id="loadModelBtn" class="btn btn-primary" disabled>Load Model</button>
+      <button id="loadExcelBtn" class="btn btn-primary">Load Excel</button>
+      <input type="file" id="excelInput" accept=".xlsx,.xls" style="display: none;">
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <div class="main-container">
+    
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      
+      <!-- Controls Panel -->
+      <div class="panel">
+        <h3>🎨 Visualization</h3>
+        <div class="control-group">
+          <label for="colorScheme">Color Scheme:</label>
+          <select id="colorScheme" disabled>
+            <option value="None">None</option>
+            <option value="Block" selected>By Block</option>
+            <option value="Component">By Component</option>
+            <option value="Status">By Status</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Search Panel -->
+      <div class="panel">
+        <h3>🔍 Search</h3>
+        <div class="control-group">
+          <label for="searchInput">Plot Number:</label>
+          <div class="input-group">
+            <input type="text" id="searchInput" placeholder="Enter plot number..." disabled>
+            <button id="searchBtn" class="btn btn-small" disabled>Search</button>
+          </div>
+        </div>
+        <button id="showAllBtn" class="btn btn-secondary btn-full" disabled>Show All</button>
+      </div>
+
+      <!-- Tools Panel -->
+      <div class="panel">
+        <h3>🛠️ Tools</h3>
+        <button id="fitViewBtn" class="btn btn-secondary btn-full" disabled>Fit to View</button>
+        <button id="exportStatsBtn" class="btn btn-secondary btn-full" disabled>Export Stats</button>
+      </div>
+
+      <!-- Legend -->
+      <div class="panel" id="legend">
+        <!-- Legend will be populated dynamically -->
+      </div>
+
+      <!-- Stats -->
+      <div class="panel" id="dataStats">
+        <!-- Data stats will be populated dynamically -->
+      </div>
+
+      <div class="panel" id="mappingStats">
+        <!-- Mapping stats will be populated dynamically -->
+      </div>
+
+    </aside>
+
+    <!-- Viewer Container -->
+    <main class="viewer-section">
+      <div id="viewerContainer" class="viewer-container"></div>
+      <div id="status" class="status">Ready to load model and data</div>
+    </main>
+
+  </div>
+
+  <!-- APS Viewer JS -->
+  <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"></script>
+  
+  <!-- SheetJS for Excel parsing -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  
+  <!-- Our modules (ES6) -->
+  <script type="module" src="js/main.js"></script>
+
+</body>
+</html>

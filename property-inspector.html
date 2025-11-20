@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Villa Property Inspector - Debug Tool</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    body { margin: 0; padding: 0; }
+    .inspector-wrapper {
+      display: flex;
+      height: 100vh;
+    }
+    .viewer-side {
+      flex: 1;
+      position: relative;
+    }
+    .debug-side {
+      width: 450px;
+      background: #f5f5f5;
+      border-left: 1px solid #ddd;
+      overflow-y: auto;
+      padding: 15px;
+    }
+    .debug-side h2 {
+      margin-top: 0;
+      color: #333;
+      border-bottom: 2px solid #0078d4;
+      padding-bottom: 10px;
+    }
+    .controls {
+      background: white;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+    }
+    .controls input, .controls button {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      width: 100%;
+      margin-bottom: 8px;
+      box-sizing: border-box;
+    }
+    .controls input {
+      font-size: 14px;
+    }
+    .controls button {
+      background: #0078d4;
+      color: white;
+      cursor: pointer;
+      border: none;
+      font-weight: bold;
+    }
+    .controls button:hover {
+      background: #005a9e;
+    }
+    .result-panel {
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 12px;
+      margin-bottom: 15px;
+      font-size: 12px;
+    }
+    .result-panel h4 {
+      margin: 0 0 10px 0;
+      color: #0078d4;
+      border-bottom: 1px solid #e0e0e0;
+      padding-bottom: 5px;
+    }
+    .property-group {
+      margin-bottom: 12px;
+      padding: 8px;
+      background: #f9f9f9;
+      border-left: 3px solid #0078d4;
+    }
+    .property-group h5 {
+      margin: 0 0 5px 0;
+      color: #0078d4;
+      font-size: 12px;
+    }
+    .property-item {
+      margin: 3px 0;
+      font-size: 11px;
+      font-family: monospace;
+      color: #333;
+    }
+    .property-label {
+      font-weight: bold;
+      color: #666;
+    }
+    .property-value {
+      color: #000;
+      margin-left: 3px;
+    }
+    .copy-btn {
+      padding: 3px 6px;
+      font-size: 10px;
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      margin-left: 5px;
+    }
+    .copy-btn:hover {
+      background: #218838;
+    }
+    .status {
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 3px;
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+      font-size: 12px;
+    }
+    .error-status {
+      background: #f8d7da;
+      color: #721c24;
+      border-color: #f5c6cb;
+    }
+    .info-box {
+      background: #e7f3ff;
+      border-left: 4px solid #0078d4;
+      padding: 10px;
+      margin-bottom: 15px;
+      font-size: 12px;
+      color: #003366;
+    }
+    .info-box strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="inspector-wrapper">
+    <!-- Viewer Section -->
+    <div class="viewer-side">
+      <div id="viewerContainer" class="viewer-container"></div>
+      <div id="status" class="status" style="position: absolute; top: 10px; left: 10px; right: auto; width: 400px; display: none;"></div>
+    </div>
+
+    <!-- Debug Panel -->
+    <div class="debug-side">
+      <h2>🔍 Property Inspector</h2>
+      
+      <div class="info-box">
+        <strong>Instructions:</strong>
+        1. Model loads automatically<br>
+        2. Enter plot number<br>
+        3. Click "Search Element"<br>
+        4. View properties found
+      </div>
+
+      <!-- Search Controls -->
+      <div class="controls">
+        <input type="text" id="plotInput" placeholder="Plot number (e.g., 425)" value="425">
+        <button id="searchBtn">🔍 Search Element</button>
+        <button id="inventoryBtn">📊 Scan Inventory</button>
+        <button id="loadModelBtn">📂 Load Model</button>
+      </div>
+
+      <!-- Status -->
+      <div id="debugStatus" class="status" style="display: none;"></div>
+
+      <!-- Results -->
+      <div id="resultsContainer"></div>
+    </div>
+  </div>
+
+  <!-- APS Viewer -->
+  <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"></script>
+  
+  <!-- SheetJS -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  
+  <!-- Our App -->
+  <script type="module">
+    import { CONFIG } from './js/config.js';
+    import { viewerManager } from './js/viewer.js';
+    import { propertyDebugger } from './js/propertyDebugger.js';
+
+    let modelLoaded = false;
+
+    // Initialize viewer
+    async function initViewer() {
+      try {
+        showStatus('Initializing viewer...');
+        await viewerManager.initialize('viewerContainer');
+        
+        // Load model
+        showStatus('Loading model...');
+        const urn = CONFIG.MODEL_URN;
+        if (!urn) {
+          showError('MODEL_URN not configured in js/config.js');
+          return;
+        }
+        
+        await viewerManager.loadModel(urn);
+        modelLoaded = true;
+        showStatus('✅ Model loaded successfully', 'success');
+      } catch (error) {
+        showError('Error initializing: ' + error.message);
+        console.error(error);
+      }
+    }
+
+    // Search for elements
+    document.getElementById('searchBtn').addEventListener('click', async () => {
+      if (!modelLoaded) {
+        showError('Model not loaded. Click "Load Model" first.');
+        return;
+      }
+
+      const plotNumber = document.getElementById('plotInput').value.trim();
+      if (!plotNumber) {
+        showError('Enter a plot number');
+        return;
+      }
+
+      showStatus(`Searching for Plot = ${plotNumber}...`);
+
+      try {
+        const matches = await propertyDebugger.findElementsByProperty('Plot', plotNumber);
+        
+        if (matches.length === 0) {
+          showError(`❌ No elements found with Plot = ${plotNumber}`);
+          displayResults(`
+            <div class="info-box">
+              <strong>No matches found</strong>
+              Try scanning the inventory to see what property names are used
+            </div>
+          `);
+          return;
+        }
+
+        let html = `<div class="result-panel">
+          <h4>✅ Found ${matches.length} element(s):</h4>`;
+        
+        matches.forEach((match, idx) => {
+          html += `
+            <div class="property-group">
+              <h5>#${idx + 1}: ${match.elementName} (DBId: ${match.dbId})</h5>
+              <div class="property-item">
+                <span class="property-label">Category:</span>
+                <span class="property-value">${match.category}</span>
+              </div>
+              <div class="property-item">
+                <span class="property-label">Plot:</span>
+                <span class="property-value">${match.value}</span>
+                <button class="copy-btn" onclick="navigator.clipboard.writeText('${match.dbId}')">Copy DBId</button>
+              </div>
+            </div>
+          `;
+        });
+        
+        html += '</div>';
+        displayResults(html);
+        showStatus(`✅ Found ${matches.length} element(s)`, 'success');
+      } catch (error) {
+        showError('Search error: ' + error.message);
+        console.error(error);
+      }
+    });
+
+    // Scan inventory
+    document.getElementById('inventoryBtn').addEventListener('click', async () => {
+      if (!modelLoaded) {
+        showError('Model not loaded. Click "Load Model" first.');
+        return;
+      }
+
+      showStatus('Scanning property inventory from model...');
+
+      try {
+        const inventory = await propertyDebugger.getPropertyInventory(100);
+        const entries = Object.entries(inventory)
+          .filter(([_, prop]) => prop.displayName.toLowerCase().includes('plot') || 
+                                 prop.displayName.toLowerCase().includes('villa') ||
+                                 prop.displayName.toLowerCase().includes('block'))
+          .sort((a, b) => b[1].occurrences - a[1].occurrences);
+
+        if (entries.length === 0) {
+          displayResults('<div class="info-box">No Plot/Villa/Block properties found in model</div>');
+          return;
+        }
+
+        let html = `<div class="result-panel">
+          <h4>📊 Found ${entries.length} relevant properties:</h4>`;
+
+        entries.forEach(([key, prop]) => {
+          html += `
+            <div class="property-group">
+              <h5>${prop.category}/${prop.displayName}</h5>
+              <div class="property-item">
+                <span class="property-label">Found in:</span>
+                <span class="property-value">${prop.occurrences} elements</span>
+              </div>
+              <div class="property-item">
+                <span class="property-label">Examples:</span>
+              </div>
+              ${prop.exampleValues.map(v => 
+                `<div class="property-item" style="margin-left: 10px;">• ${v}</div>`
+              ).join('')}
+              <button class="copy-btn" onclick="navigator.clipboard.writeText('${key}')">Copy Path</button>
+            </div>
+          `;
+        });
+
+        html += `<div class="info-box" style="margin-top: 10px;">
+          <strong>Tip:</strong> Copy these paths and update CONFIG.MODEL_PROPERTIES in js/config.js
+        </div></div>`;
+
+        displayResults(html);
+        showStatus(`✅ Scanned ${Object.keys(inventory).length} properties`, 'success');
+      } catch (error) {
+        showError('Scan error: ' + error.message);
+        console.error(error);
+      }
+    });
+
+    // Load model button
+    document.getElementById('loadModelBtn').addEventListener('click', async () => {
+      if (!modelLoaded) {
+        await initViewer();
+      }
+    });
+
+    function displayResults(html) {
+      document.getElementById('resultsContainer').innerHTML = html;
+    }
+
+    function showStatus(message, type = 'info') {
+      const status = document.getElementById('debugStatus');
+      status.textContent = message;
+      status.style.display = 'block';
+      status.className = 'status' + (type === 'error' ? ' error-status' : '');
+      
+      if (type === 'success') {
+        setTimeout(() => {
+          status.style.display = 'none';
+        }, 4000);
+      }
+    }
+
+    function showError(message) {
+      showStatus(message, 'error');
+    }
+
+    // Auto-load model on page load
+    window.addEventListener('load', () => {
+      initViewer();
+    });
+  </script>
+</body>
+</html>
