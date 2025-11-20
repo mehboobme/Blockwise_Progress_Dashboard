@@ -59,8 +59,6 @@ class GanttChart {
     this.toggleBtn?.addEventListener('click', () => this.toggleWindow());
     
     // Window controls
-    document.getElementById('ganttMinimize')?.addEventListener('click', () => this.minimize());
-    document.getElementById('ganttMaximize')?.addEventListener('click', () => this.maximize());
     document.getElementById('ganttClose')?.addEventListener('click', () => this.close());
     
     // Today button
@@ -217,17 +215,21 @@ class GanttChart {
     
     this.scheduleData = new Map(dataParser.scheduleByBlock);
     
-    // Load villa-level data if available
-    if (dataParser.rawData && Array.isArray(dataParser.rawData)) {
-      this.villaData = dataParser.rawData.filter(row => {
-        const hasBlock = row.Block || row.block;
-        const hasPlot = row.Plot || row.plot;
-        const hasStart = row['Planned Start'] || row['PlannedStart'];
-        const hasFinish = row['Planned Finish'] || row['PlannedFinish'];
-        return hasBlock && hasPlot && hasStart && hasFinish;
-      });
-      console.log(`📋 Loaded ${this.villaData.length} villa-level records`);
+    // Extract villa-level data from block structure
+    this.villaData = [];
+    for (const [blockKey, blockData] of this.scheduleData.entries()) {
+      if (blockData.villas && Array.isArray(blockData.villas)) {
+        // Add block key to each villa for easy lookup
+        blockData.villas.forEach(villa => {
+          this.villaData.push({
+            ...villa,
+            Block: blockKey
+          });
+        });
+      }
     }
+    
+    console.log(`📋 Loaded ${this.villaData.length} villa-level records from ${this.scheduleData.size} blocks`);
     
     if (this.scheduleData.size === 0) {
       this.showEmptyState('No schedule data found. Please upload an Excel file with block schedules.');
@@ -244,6 +246,7 @@ class GanttChart {
       console.log('   plannedStart value:', firstBlock[1].plannedStart);
       console.log('   plannedFinish type:', typeof firstBlock[1].plannedFinish);
       console.log('   plannedFinish value:', firstBlock[1].plannedFinish);
+      console.log('   villas count:', firstBlock[1].villas?.length || 0);
     }
     
     // Apply filters and render
@@ -452,30 +455,42 @@ class GanttChart {
   createVillaRows(blockKey, minDate, maxDate) {
     const rows = [];
     
-    // Find all villas for this block
-    const blockVillas = this.villaData.filter(row => {
-      const blockNum = String(row.Block || row.block).trim();
-      return blockNum === blockKey;
-    });
+    // Get villas from the block's data structure
+    const blockData = this.scheduleData.get(blockKey);
+    if (!blockData || !blockData.villas || blockData.villas.length === 0) {
+      return rows;
+    }
+    
+    const blockVillas = blockData.villas;
     
     // Sort by plot number
     blockVillas.sort((a, b) => {
-      const plotA = parseInt(a.Plot || a.plot) || 0;
-      const plotB = parseInt(b.Plot || b.plot) || 0;
+      const plotA = parseInt(a.Plot) || 0;
+      const plotB = parseInt(b.Plot) || 0;
       return plotA - plotB;
     });
     
-    blockVillas.forEach(villa => {
-      const startDate = dataParser.parseExcelDate(villa['Planned Start'] || villa['PlannedStart']);
-      const finishDate = dataParser.parseExcelDate(villa['Planned Finish'] || villa['PlannedFinish']);
+    blockVillas.forEach((villa, index) => {
+      const startDate = villa['Planned Start'];
+      const finishDate = villa['Planned Finish'];
       
       if (!startDate || !finishDate) return;
       
-      // Get status and precaster from Excel
-      const status = villa.Status || villa.status || '';
-      const precaster = villa.PreCaster || villa.Precaster || villa.precaster || '';
+      // Get status and precaster from villa data
+      const status = villa.Status || '';
+      const precaster = villa.PreCaster || '';
       
-      // Define status colors
+      // Debug first villa
+      if (index === 0) {
+        console.log('🏠 First villa in block:', {
+          Plot: villa.Plot,
+          Status: status,
+          PreCaster: precaster,
+          rawVilla: villa
+        });
+      }
+      
+      // Define status colors - exact match and partial match
       const statusColors = {
         'Raft Completed': '#0066FF',
         'Pre-Cast in Progress': '#66FFFF',
@@ -485,7 +500,19 @@ class GanttChart {
         'Villa Handover': '#339966'
       };
       
-      const barColor = statusColors[status] || '#667eea';
+      // Try exact match first, then partial match
+      let barColor = statusColors[status];
+      if (!barColor) {
+        // Partial match
+        const statusLower = status.toLowerCase();
+        if (statusLower.includes('raft')) barColor = '#0066FF';
+        else if (statusLower.includes('pre-cast') && statusLower.includes('progress')) barColor = '#66FFFF';
+        else if (statusLower.includes('pre-cast') && statusLower.includes('completed')) barColor = '#CCCC00';
+        else if (statusLower.includes('mep') && statusLower.includes('progress')) barColor = '#FF66CC';
+        else if (statusLower.includes('mep') && statusLower.includes('completed')) barColor = '#66FF33';
+        else if (statusLower.includes('handover')) barColor = '#339966';
+        else barColor = '#667eea'; // Default gray
+      }
       
       const row = document.createElement('div');
       row.className = 'gantt-task-row';
@@ -496,7 +523,7 @@ class GanttChart {
       label.className = 'gantt-task-label';
       label.style.paddingLeft = '30px'; // Indent to show hierarchy
       label.innerHTML = `
-        <div class="gantt-task-name" style="font-size: 11px;">Plot ${villa.Plot || villa.plot}</div>
+        <div class="gantt-task-name" style="font-size: 11px;">Plot ${villa.Plot}</div>
         <div class="gantt-task-meta">${precaster ? 'PC: ' + precaster : ''}</div>
       `;
       row.appendChild(label);
@@ -518,7 +545,7 @@ class GanttChart {
       const endStr = this.formatDate(finishDate);
       
       bar.innerHTML = `<span>${precaster || ''}</span>`;
-      bar.title = `Plot ${villa.Plot || villa.plot}\nStatus: ${status}\nPrecaster: ${precaster}\nStart: ${startStr}\nFinish: ${endStr}`;
+      bar.title = `Plot ${villa.Plot}\nStatus: ${status}\nPrecaster: ${precaster}\nStart: ${startStr}\nFinish: ${endStr}`;
       
       timeline.appendChild(bar);
       row.appendChild(timeline);

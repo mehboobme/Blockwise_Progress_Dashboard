@@ -457,6 +457,21 @@ class ViewerManager {
    */
   isolate(dbIds) {
     this.viewer.isolate(dbIds);
+    
+    // Filter precaster labels to show only for isolated elements
+    if (window.embeddedColorManager) {
+      // Get plot numbers for isolated dbIds
+      const plots = [];
+      if (window.embeddedDataManager) {
+        dbIds.forEach(dbId => {
+          const elementInfo = window.embeddedDataManager.elementData.get(dbId);
+          if (elementInfo && elementInfo.plot) {
+            plots.push(elementInfo.plot);
+          }
+        });
+      }
+      window.embeddedColorManager.filterPrecasterLabels(plots);
+    }
   }
 
   /**
@@ -464,6 +479,11 @@ class ViewerManager {
    */
   showAll() {
     this.viewer.showAll();
+    
+    // Show all precaster labels
+    if (window.embeddedColorManager) {
+      window.embeddedColorManager.filterPrecasterLabels(null);
+    }
   }
 
   /**

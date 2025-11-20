@@ -15,6 +15,7 @@ class EmbeddedDataManager {
     this.blockGroups = new Map(); // block -> [dbIds]
     this.plotGroups = new Map(); // plot -> [dbIds]
     this.componentGroups = new Map(); // component -> [dbIds]
+    this.excelData = new Map(); // plot -> { status, precaster, villaType, ... }
   }
 
   /**
@@ -157,6 +158,44 @@ class EmbeddedDataManager {
     return stats;
   }
 
+  /**
+   * Load Excel data for status and precaster mapping
+   * @param {Object} dataParser - The dataParser instance with rawData
+   */
+  loadExcelData(dataParser) {
+    console.log('📊 Loading Excel data for status/precaster mapping...');
+    this.excelData.clear();
+    
+    if (!dataParser || !dataParser.rawData || dataParser.rawData.length === 0) {
+      console.warn('⚠️ No Excel data available');
+      return;
+    }
+    
+    dataParser.rawData.forEach(row => {
+      const plot = String(row.Plot || row.plot || '').trim();
+      if (!plot) return;
+      
+      this.excelData.set(plot, {
+        status: row.Status || row.status || '',
+        precaster: row.PreCaster || row.Precaster || row.precaster || '',
+        villaType: row.Villa || row.villa || '',
+        block: row.Block || row.block || ''
+      });
+    });
+    
+    console.log(`✅ Loaded Excel data for ${this.excelData.size} plots`);
+  }
+  
+  /**
+   * Get Excel data for a specific plot
+   * @param {string} plotNumber
+   * @returns {Object|null}
+   */
+  getExcelDataForPlot(plotNumber) {
+    const plot = String(plotNumber).trim();
+    return this.excelData.get(plot) || null;
+  }
+  
   /**
    * Get all DbIds from villa node 3 in the federated model
    * Node 3 = "Al Arous Project - Familly Villas.nwc"

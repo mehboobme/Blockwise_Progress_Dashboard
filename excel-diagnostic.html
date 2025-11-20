@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Excel Column Diagnostic Tool</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 1200px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .upload-area {
+      border: 2px dashed #ccc;
+      padding: 40px;
+      text-align: center;
+      border-radius: 8px;
+      margin-bottom: 30px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .upload-area:hover {
+      border-color: #667eea;
+      background: #f8f9ff;
+    }
+    .upload-area.dragover {
+      border-color: #667eea;
+      background: #e0e7ff;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .btn {
+      display: inline-block;
+      padding: 10px 20px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn:hover {
+      background: #5568d3;
+    }
+    .results {
+      margin-top: 30px;
+    }
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      background: #f9fafb;
+      border-radius: 8px;
+    }
+    .section h2 {
+      margin-top: 0;
+      color: #667eea;
+      font-size: 18px;
+    }
+    .column-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      margin-top: 15px;
+    }
+    .column-item {
+      padding: 8px 12px;
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .column-item.important {
+      background: #fef3c7;
+      border-color: #f59e0b;
+      font-weight: bold;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+      font-size: 12px;
+    }
+    .data-table th {
+      background: #667eea;
+      color: white;
+      padding: 10px;
+      text-align: left;
+      position: sticky;
+      top: 0;
+    }
+    .data-table td {
+      padding: 8px;
+      border: 1px solid #e5e7eb;
+    }
+    .data-table tr:nth-child(even) {
+      background: #f9fafb;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+    .stat-card {
+      padding: 15px;
+      background: white;
+      border-radius: 4px;
+      border-left: 4px solid #667eea;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #667eea;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 5px;
+    }
+    .warning {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      padding: 15px;
+      border-radius: 4px;
+      margin-top: 15px;
+    }
+    .warning strong {
+      color: #b45309;
+    }
+    .code {
+      background: #1f2937;
+      color: #10b981;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📊 Excel Column Diagnostic Tool</h1>
+    <p>Upload your Excel file to see the exact column names and data structure. This will help identify why the Gantt chart isn't loading data.</p>
+    
+    <div class="upload-area" id="uploadArea">
+      <p>📁 Drop your Excel file here or click to browse</p>
+      <button class="btn" onclick="document.getElementById('fileInput').click()">Choose File</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+    </div>
+
+    <div class="results" id="results" style="display: none;">
+      <div class="section">
+        <h2>📋 File Information</h2>
+        <div class="stats" id="stats"></div>
+      </div>
+
+      <div class="section">
+        <h2>📌 Column Names Found</h2>
+        <p>These are the exact column names in your Excel file. The yellow highlighted ones are important for the Gantt chart.</p>
+        <div class="column-list" id="columnList"></div>
+      </div>
+
+      <div class="section">
+        <h2>🔍 Sample Data (First 10 Rows)</h2>
+        <div style="overflow-x: auto;">
+          <table class="data-table" id="dataTable"></table>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>🛠️ Required Configuration</h2>
+        <p>Copy this configuration to your <code>js/config.js</code> file in the EXCEL.COLUMNS section:</p>
+        <div class="code" id="configCode"></div>
+      </div>
+
+      <div id="warningSection"></div>
+    </div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadArea = document.getElementById('uploadArea');
+    const results = document.getElementById('results');
+
+    // Drag and drop handlers
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        handleFile(files[0]);
+      }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    function handleFile(file) {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        // Get first sheet
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+        
+        analyzeData(file.name, workbook.SheetNames, jsonData);
+      };
+      
+      reader.readAsArrayBuffer(file);
+    }
+
+    function analyzeData(fileName, sheetNames, data) {
+      results.style.display = 'block';
+
+      // Stats
+      const statsHTML = `
+        <div class="stat-card">
+          <div class="stat-value">${fileName}</div>
+          <div class="stat-label">File Name</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${sheetNames[0]}</div>
+          <div class="stat-label">Sheet Name</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${data.length}</div>
+          <div class="stat-label">Total Rows</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">${Object.keys(data[0] || {}).length}</div>
+          <div class="stat-label">Total Columns</div>
+        </div>
+      `;
+      document.getElementById('stats').innerHTML = statsHTML;
+
+      // Column list
+      const columns = Object.keys(data[0] || {});
+      const importantColumns = ['block', 'plot', 'planned start', 'planned finish', 'status', 'precaster', 'villa'];
+      
+      const columnHTML = columns.map(col => {
+        const isImportant = importantColumns.some(imp => col.toLowerCase().includes(imp));
+        return `<div class="column-item ${isImportant ? 'important' : ''}">${col}</div>`;
+      }).join('');
+      document.getElementById('columnList').innerHTML = columnHTML;
+
+      // Data table
+      const sampleData = data.slice(0, 10);
+      let tableHTML = '<thead><tr>';
+      columns.forEach(col => {
+        tableHTML += `<th>${col}</th>`;
+      });
+      tableHTML += '</tr></thead><tbody>';
+      
+      sampleData.forEach(row => {
+        tableHTML += '<tr>';
+        columns.forEach(col => {
+          let value = row[col];
+          // Format dates
+          if (typeof value === 'number' && value > 40000 && value < 50000) {
+            const date = excelDateToJSDate(value);
+            value = `${value} (${date.toLocaleDateString()})`;
+          }
+          tableHTML += `<td>${value !== undefined ? value : ''}</td>`;
+        });
+        tableHTML += '</tr>';
+      });
+      tableHTML += '</tbody>';
+      document.getElementById('dataTable').innerHTML = tableHTML;
+
+      // Generate config
+      const config = generateConfig(columns);
+      document.getElementById('configCode').textContent = config;
+
+      // Check for warnings
+      checkWarnings(columns);
+    }
+
+    function excelDateToJSDate(serial) {
+      const EXCEL_EPOCH = new Date(Date.UTC(1899, 11, 30));
+      const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+      const adjustedValue = serial > 59 ? serial - 1 : serial;
+      return new Date(EXCEL_EPOCH.getTime() + (adjustedValue * MILLISECONDS_PER_DAY));
+    }
+
+    function generateConfig(columns) {
+      const mapping = {
+        BLOCK: findColumn(columns, ['block']),
+        PLOT: findColumn(columns, ['plot']),
+        PLANNED_START: findColumn(columns, ['planned start', 'plannedstart', 'start']),
+        PLANNED_FINISH: findColumn(columns, ['planned finish', 'plannedfinish', 'finish', 'end']),
+        STATUS: findColumn(columns, ['status']),
+        PRECASTER: findColumn(columns, ['precaster', 'pre-caster', 'contractor']),
+        VILLA_TYPE: findColumn(columns, ['villa type', 'villatype', 'type']),
+        COMPONENT: findColumn(columns, ['component']),
+      };
+
+      let config = 'COLUMNS: {\n';
+      for (const [key, value] of Object.entries(mapping)) {
+        if (value) {
+          config += `  ${key}: '${value}',\n`;
+        }
+      }
+      config += '}';
+      return config;
+    }
+
+    function findColumn(columns, keywords) {
+      for (const keyword of keywords) {
+        const found = columns.find(col => col.toLowerCase().includes(keyword));
+        if (found) return found;
+      }
+      return null;
+    }
+
+    function checkWarnings(columns) {
+      const warnings = [];
+      const required = {
+        'Block': ['block'],
+        'Plot': ['plot'],
+        'Planned Start': ['planned start', 'plannedstart'],
+        'Planned Finish': ['planned finish', 'plannedfinish']
+      };
+
+      for (const [name, keywords] of Object.entries(required)) {
+        if (!findColumn(columns, keywords)) {
+          warnings.push(`Missing column: <strong>${name}</strong>`);
+        }
+      }
+
+      if (warnings.length > 0) {
+        const warningHTML = `
+          <div class="warning">
+            <h3>⚠️ Warnings</h3>
+            ${warnings.map(w => `<p>• ${w}</p>`).join('')}
+            <p style="margin-top: 15px;">The Gantt chart requires these columns to work properly. Please add them to your Excel file or adjust the column names in config.js.</p>
+          </div>
+        `;
+        document.getElementById('warningSection').innerHTML = warningHTML;
+      }
+    }
+  </script>
+</body>
+</html>

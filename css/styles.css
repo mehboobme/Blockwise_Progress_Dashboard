@@ -837,9 +837,19 @@ body::after {
 }
 
 .gantt-task-bar.villa-task {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   height: 16px;
-  font-size: 8px;
+  font-size: 10px;
+  font-weight: bold;
+  text-align: center;
+  /* Background color is set dynamically via JavaScript */
+}
+
+.gantt-task-bar.villa-task span {
+  display: inline-block;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  font-weight: bold;
+  letter-spacing: 0.5px;
 }
 
 .gantt-task-bar-dates {

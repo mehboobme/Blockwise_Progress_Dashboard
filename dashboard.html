@@ -671,6 +671,12 @@
           // Parse Excel file
           await dataParser.parseExcelFile(file);
           
+          // Load Excel data into embeddedDataManager for status/precaster mapping
+          if (window.embeddedDataManager) {
+            window.embeddedDataManager.loadExcelData(dataParser);
+            console.log('✅ Excel data loaded into embeddedDataManager');
+          }
+          
           // Update status
           const blockCount = dataParser.scheduleByBlock.size;
           scheduleStatus.textContent = `✅ Loaded ${blockCount} blocks`;
@@ -1173,8 +1179,6 @@
         <span>📊 Schedule Gantt Chart</span>
       </div>
       <div class="gantt-controls">
-        <button id="ganttMinimize" class="gantt-btn" title="Minimize">−</button>
-        <button id="ganttMaximize" class="gantt-btn" title="Maximize">□</button>
         <button id="ganttClose" class="gantt-btn" title="Close">×</button>
       </div>
     </div>

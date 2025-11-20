@@ -67,7 +67,9 @@ export const CONFIG = {
       PLANNED_START: 'Planned Start',
       PLANNED_FINISH: 'Planned Finish',
       ACTUAL_START: 'Actual Start',
-      ACTUAL_FINISH: 'Actual Finish'
+      ACTUAL_FINISH: 'Actual Finish',
+      STATUS: 'Status',
+      PRECASTER: 'PreCaster'
     },
     
     // Key field to match with model elements
