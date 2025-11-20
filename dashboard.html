@@ -678,6 +678,11 @@
           
           console.log(`✅ Schedule loaded: ${blockCount} blocks`);
           
+          // Refresh Gantt chart if it exists
+          if (window.ganttChart) {
+            window.ganttChart.refresh();
+          }
+          
           // Refresh schedule panel if it exists
           if (window._currentBlockMap) {
             const existing = document.getElementById('permanentSchedulePanel');
@@ -1159,6 +1164,63 @@
     window.showInteractiveBlockList = showInteractiveBlockList;
     window.hideBlockLabels = hideBlockLabels;
     window.diagnosticAnalysis = diagnosticAnalysis;
+  </script>
+
+  <!-- Gantt Chart Floating Window -->
+  <div id="ganttWindow" class="gantt-window">
+    <div class="gantt-header">
+      <div class="gantt-title">
+        <span>📊 Schedule Gantt Chart</span>
+      </div>
+      <div class="gantt-controls">
+        <button id="ganttMinimize" class="gantt-btn" title="Minimize">−</button>
+        <button id="ganttMaximize" class="gantt-btn" title="Maximize">□</button>
+        <button id="ganttClose" class="gantt-btn" title="Close">×</button>
+      </div>
+    </div>
+    <div class="gantt-toolbar">
+      <div class="gantt-filter-group">
+        <button id="ganttTodayBtn" class="gantt-btn-filter" title="Jump to today's date">📅 Today</button>
+        <button id="ganttResetTodayBtn" class="gantt-btn-filter" title="Reset Today line to actual date">🔄 Reset Today</button>
+        <label>From:</label>
+        <input type="date" id="ganttStartDate" class="gantt-date-input">
+        <label>To:</label>
+        <input type="date" id="ganttEndDate" class="gantt-date-input">
+        <button id="ganttApplyFilter" class="gantt-btn-filter">Apply</button>
+        <button id="ganttResetFilter" class="gantt-btn-filter">Reset</button>
+      </div>
+      <div class="gantt-view-group">
+        <label style="display: flex; align-items: center; gap: 4px;">
+          <input type="checkbox" id="ganttLookAhead">
+          Look Ahead:
+          <input type="number" id="ganttLookAheadWeeks" class="gantt-weeks-input" value="12" min="1" max="52" title="Number of weeks">
+          <span style="font-size: 11px;">weeks</span>
+        </label>
+        <label>
+          <input type="checkbox" id="ganttShowVillas">
+          Show Villas in Chart
+        </label>
+        <label>
+          <input type="checkbox" id="ganttFilterModel">
+          Filter Villas in Model
+        </label>
+      </div>
+    </div>
+    <div class="gantt-content" id="ganttContent">
+      <div class="gantt-timeline" id="ganttTimeline"></div>
+      <div class="gantt-tasks" id="ganttTasks"></div>
+    </div>
+  </div>
+
+  <!-- Gantt Chart Toggle Button -->
+  <button id="ganttToggle" class="gantt-toggle-btn" title="Toggle Gantt Chart">
+    📊 Schedule
+  </button>
+
+  <!-- Import Gantt Chart Module -->
+  <script type="module">
+    import { ganttChart } from './js/ganttChart.js';
+    window.ganttChart = ganttChart;
   </script>
 
 </body>

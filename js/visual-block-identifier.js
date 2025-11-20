@@ -1018,6 +1018,8 @@ export function clearBlockSelection() {
 // Expose globally
 window.showInteractiveBlockList = showInteractiveBlockList;
 window.hideBlockLabels = hideBlockLabels;
+window.clearBlockLabels = clearBlockLabels;
+window.createBlockLabelsFromVisibleGeometry = createBlockLabelsFromVisibleGeometry;
 window.isolateBlock = isolateBlock;
 window.toggleBlockPanel = toggleBlockPanel;
 window.toggleBlockSelection = toggleBlockSelection;

@@ -293,10 +293,25 @@ class DataParser {
     
     // If Excel serial number (days since 1900-01-01)
     if (typeof dateValue === 'number') {
-      const excelEpoch = new Date(1900, 0, 1);
-      const days = Math.floor(dateValue) - 1; // Excel counts from 1
-      const date = new Date(excelEpoch);
-      date.setDate(date.getDate() + days);
+      // Excel incorrectly considers 1900 a leap year
+      // Excel serial 1 = January 1, 1900
+      // Excel serial 60 = February 29, 1900 (doesn't exist)
+      // Excel serial 61 = March 1, 1900
+      const EXCEL_EPOCH = new Date(Date.UTC(1899, 11, 30)); // December 30, 1899
+      const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+      
+      // Adjust for Excel's leap year bug (dates after Feb 29, 1900)
+      const adjustedValue = dateValue > 59 ? dateValue - 1 : dateValue;
+      
+      const milliseconds = adjustedValue * MILLISECONDS_PER_DAY;
+      const date = new Date(EXCEL_EPOCH.getTime() + milliseconds);
+      
+      // Validate the date
+      if (isNaN(date.getTime())) {
+        console.warn(`⚠️ Invalid Excel date number: ${dateValue}`);
+        return null;
+      }
+      
       return date;
     }
     
