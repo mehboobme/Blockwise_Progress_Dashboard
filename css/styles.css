@@ -157,21 +157,21 @@ body::after {
   background: #fff;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
-  padding: 15px;
-  margin-bottom: 20px;
+  padding: 10px;
+  margin-bottom: 12px;
 }
 
 .panel h3 {
-  font-size: 16px;
-  margin-bottom: 15px;
+  font-size: 15px;
+  margin-bottom: 10px;
   color: #333;
   border-bottom: 2px solid #009A84;
-  padding-bottom: 8px;
+  padding-bottom: 6px;
 }
 
 /* Control Group */
 .control-group {
-  margin-bottom: 15px;
+  margin-bottom: 10px;
 }
 
 .control-group:last-child {
@@ -180,19 +180,19 @@ body::after {
 
 .control-group label {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #555;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 
 .control-group select,
 .control-group input[type="text"] {
   width: 100%;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
   transition: border-color 0.2s;
 }
 
@@ -220,10 +220,10 @@ body::after {
 
 /* Buttons */
 .btn {
-  padding: 10px 20px;
+  padding: 8px 16px;
   border: none;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -260,7 +260,7 @@ body::after {
 
 .btn-full {
   width: 100%;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .btn-full:last-child {
@@ -268,6 +268,30 @@ body::after {
 }
 
 /* Legend */
+.legends-panel {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.legend-section {
+  margin-bottom: 12px;
+}
+
+.legend-section:last-child {
+  margin-bottom: 0;
+}
+
+.legend-section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #004E43;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 4px;
+}
+
 .legend-container h4 {
   font-size: 14px;
   margin-bottom: 10px;
@@ -277,9 +301,10 @@ body::after {
 .legend-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #333;
 }
 
 .legend-item:last-child {
@@ -287,10 +312,24 @@ body::after {
 }
 
 .legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid #ddd;
+  flex-shrink: 0;
+}
+
+.legend-badge {
   width: 20px;
   height: 20px;
-  border-radius: 4px;
-  border: 1px solid #ddd;
+  border-radius: 50%;
+  background: #009A84;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 11px;
   flex-shrink: 0;
 }
 
@@ -510,46 +549,100 @@ body::after {
 /* Gantt Window */
 .gantt-window {
   position: fixed;
-  bottom: -460px;
-  right: -169px;
-  width: 1000px;
-  height: 500px;
+  bottom: 40px;
+  right: 10px;
+  width: 30cm;
+  height: 7cm;
   background: white;
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
   display: none;
   flex-direction: column;
-  z-index: 1000;
-  overflow: auto;
-  min-width: 600px;
-  min-height: 300px;
-  max-width: calc(100vw - 40px);
-  max-height: calc(100vh - 130px);
-  border: 1px solid #e0e0e0;
-  resize: both;
+  z-index: 999;
+  overflow: hidden;
+  min-width: 500px;
+  min-height: 200px;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 50px);
+  border: 1px solid #ddd;
+  border-bottom: none;
+  resize: none;
 }
 
-/* Resize handle indicator */
-.gantt-window::after {
-  content: '⇲';
+/* Resize handles for all sides */
+.gantt-resize-handle {
   position: absolute;
-  bottom: 4px;
-  right: 4px;
+  z-index: 1001;
+}
+
+.gantt-resize-handle.top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.gantt-resize-handle.right {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.gantt-resize-handle.left {
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 1001;
+}
+
+.gantt-resize-handle.left:hover {
+  background: rgba(0, 154, 132, 0.2);
+}
+
+.gantt-resize-handle.top-left {
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+}
+
+.gantt-resize-handle.top-right {
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  cursor: nesw-resize;
+}
+
+.gantt-resize-handle.bottom-right {
+  bottom: 0;
+  right: 0;
   width: 16px;
   height: 16px;
-  font-size: 14px;
-  color: #009A84;
   cursor: nwse-resize;
-  pointer-events: none;
-  z-index: 10;
-  opacity: 0.5;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #009A84;
+  font-size: 14px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
 }
 
-.gantt-window.visible {
-  display: flex;
+.gantt-resize-handle.bottom-right:hover {
+  opacity: 1;
+}
+
+.gantt-resize-handle.bottom-right::before {
+  content: '⇲';
+  pointer-events: none;
 }
 
 .gantt-window.visible {
@@ -626,8 +719,7 @@ body::after {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   font-size: 11px;
 }
 
@@ -635,12 +727,32 @@ body::after {
   display: none;
 }
 
-.gantt-filter-group,
+.gantt-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.gantt-date-range-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.gantt-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
 .gantt-view-group {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 12px;
+  white-space: nowrap;
 }
 
 .gantt-filter-group label,
@@ -702,7 +814,8 @@ body::after {
 /* Gantt Content */
 .gantt-content {
   flex: 1;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
   position: relative;
   background: #fafbfc;
 }
@@ -974,7 +1087,10 @@ body::after {
   font-weight: bold;
   white-space: nowrap;
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}-timeline-header {
+}
+
+@media (max-width: 1200px) {
+  .gantt-timeline-header {
     min-width: 150px;
   }
 }

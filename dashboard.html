@@ -58,7 +58,7 @@
         </div>
 
         <div class="control-group">
-          <label for="filterBlock">Construction Activity:</label>
+          <label for="filterBlock">Blocks:</label>
           <select id="filterBlock" disabled>
             <option value="">All</option>
           </select>
@@ -75,6 +75,7 @@
         <button id="applyFiltersBtn" class="btn btn-primary btn-full" disabled>Apply Filters</button>
         <button id="clearFiltersBtn" class="btn btn-secondary btn-full" disabled>Include Infra</button>
         <button id="clearAllBtn" class="btn btn-secondary btn-full">Clear All</button>
+        <button id="showAllBtn" class="btn btn-secondary btn-full" disabled>Show All</button>
         <button id="resetBtn" class="btn btn-warning btn-full">Reset</button>
       </div>
 
@@ -86,18 +87,9 @@
           <select id="colorScheme" disabled>
             <option value="None">None</option>
             <option value="Block" selected>By Block</option>
-            <option value="Component">By Component</option>
             <option value="Status">By Status</option>
           </select>
         </div>
-      </div>
-
-      <!-- Tools Panel -->
-      <div class="panel">
-        <h3>🛠️ Tools</h3>
-        <button id="fitViewBtn" class="btn btn-secondary btn-full" disabled>Fit to View</button>
-        <button id="showAllBtn" class="btn btn-secondary btn-full" disabled>Show All</button>
-        <button id="exportDataBtn" class="btn btn-secondary btn-full" disabled>Export Data</button>
       </div>
 
       <!-- Schedule Data Panel -->
@@ -111,9 +103,36 @@
         </div>
       </div>
 
-      <!-- Legend -->
-      <div class="panel" id="legend">
-        <!-- Legend will be populated dynamically -->
+      <!-- Dynamic Legends Panel -->
+      <div class="panel legends-panel" id="legendsPanel" style="display: none;">
+        <h3>📊 Legends</h3>
+        
+        <!-- Construction Status Legend -->
+        <div class="legend-section">
+          <h4>Construction Status (ref villa color)</h4>
+          <div class="legend-item"><span class="legend-color" style="background: #0066FF;"></span>Raft Completed</div>
+          <div class="legend-item"><span class="legend-color" style="background: #66FFFF;"></span>Pre-Cast in Progress</div>
+          <div class="legend-item"><span class="legend-color" style="background: #CCCC00;"></span>Pre-Cast Completed</div>
+          <div class="legend-item"><span class="legend-color" style="background: #FF66CC;"></span>MEP & Finishes in Progress</div>
+          <div class="legend-item"><span class="legend-color" style="background: #66FF33;"></span>MEP & Finishes Completed</div>
+          <div class="legend-item"><span class="legend-color" style="background: #339966;"></span>Villa Handover</div>
+        </div>
+        
+        <!-- Contractors Legend -->
+        <div class="legend-section">
+          <h4>Contractors (ref block# labels color)</h4>
+          <div class="legend-item"><span class="legend-color" style="background: #66B3FF;"></span>SPML (Light Blue)</div>
+          <div class="legend-item"><span class="legend-color" style="background: #FFD700;"></span>ABR (Golden)</div>
+        </div>
+        
+        <!-- Precasters Legend -->
+        <div class="legend-section">
+          <h4>Precasters</h4>
+          <div class="legend-item"><span class="legend-badge">Q</span>Qanbar</div>
+          <div class="legend-item"><span class="legend-badge">P</span>Premco</div>
+          <div class="legend-item"><span class="legend-badge">S</span>Sald</div>
+          <div class="legend-item"><span class="legend-badge">M</span>MGB</div>
+        </div>
       </div>
 
       <!-- Stats -->
@@ -313,10 +332,13 @@
 
           this.modelLoaded = true;
           console.log('✅ Model load complete, instance tree:', viewerManager.instanceTree);
-          this.updateStatus('Model loaded - Waiting for geometry...', 'info');
+          this.updateStatus('Model loaded - Analyzing...', 'info');
 
           // Enable basic controls
           this.enableControls();
+          
+          // Auto-trigger analysis
+          await this.analyzeModel();
 
         } catch (error) {
           console.error('❌ Model load error:', error);
@@ -396,8 +418,9 @@
 
           this.updateStatus(`${scheme} colors applied`, 'success');
 
-          // Update legend
+          // Update legend and show legends panel
           this.updateLegend();
+          this.updateLegendsPanel(scheme);
 
           // Check if ANY filter is active and reapply precaster label filter
           let activeFilter = false;
@@ -1054,6 +1077,18 @@
         legendDiv.innerHTML = html;
       }
 
+      updateLegendsPanel(scheme) {
+        const legendsPanel = document.getElementById('legendsPanel');
+        if (!legendsPanel) return;
+
+        // Show legends panel based on color scheme
+        if (scheme === 'Status' || scheme === 'Block') {
+          legendsPanel.style.display = 'block';
+        } else {
+          legendsPanel.style.display = 'none';
+        }
+      }
+
       updateStats() {
         const data = embeddedDataManager.exportData();
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1499,14 +1534,18 @@
     </div>
     <div class="gantt-toolbar">
       <div class="gantt-filter-group">
-        <button id="ganttTodayBtn" class="gantt-btn-filter" title="Jump to today's date">📅 Today</button>
-        <button id="ganttResetTodayBtn" class="gantt-btn-filter" title="Reset Today line to actual date">🔄 Reset Today</button>
-        <label>From:</label>
-        <input type="date" id="ganttStartDate" class="gantt-date-input">
-        <label>To:</label>
-        <input type="date" id="ganttEndDate" class="gantt-date-input">
-        <button id="ganttApplyFilter" class="gantt-btn-filter">Apply</button>
-        <button id="ganttResetFilter" class="gantt-btn-filter">Reset</button>
+        <div class="gantt-date-range-group">
+          <label>From:</label>
+          <input type="date" id="ganttStartDate" class="gantt-date-input">
+          <label>To:</label>
+          <input type="date" id="ganttEndDate" class="gantt-date-input">
+        </div>
+        <div class="gantt-action-buttons">
+          <button id="ganttTodayBtn" class="gantt-btn-filter" title="Jump to today's date">📅 Today</button>
+          <button id="ganttResetTodayBtn" class="gantt-btn-filter" title="Reset Today line to actual date">🔄 Reset Today</button>
+          <button id="ganttApplyFilter" class="gantt-btn-filter">Apply</button>
+          <button id="ganttResetFilter" class="gantt-btn-filter">Reset</button>
+        </div>
       </div>
       <div class="gantt-view-group">
         <label>

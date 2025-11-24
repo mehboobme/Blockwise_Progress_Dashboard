@@ -123,15 +123,20 @@ class GanttChart {
   handleDrag = (e) => {
     if (!this.isDragging) return;
     
-    const x = e.clientX - this.dragOffset.x;
-    const y = e.clientY - this.dragOffset.y;
+    // Calculate new position from drag offset
+    let newLeft = e.clientX - this.dragOffset.x;
+    let newTop = e.clientY - this.dragOffset.y;
     
-    // Keep window within viewport
-    const maxX = window.innerWidth - this.window.offsetWidth;
-    const maxY = window.innerHeight - this.window.offsetHeight;
+    // Keep window within viewport bounds
+    const maxLeft = window.innerWidth - this.window.offsetWidth;
+    const maxTop = window.innerHeight - this.window.offsetHeight;
     
-    this.window.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
-    this.window.style.top = Math.max(0, Math.min(y, maxY)) + 'px';
+    newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+    newTop = Math.max(0, Math.min(newTop, maxTop));
+    
+    // Set position using left/top (not right/bottom for dragging)
+    this.window.style.left = newLeft + 'px';
+    this.window.style.top = newTop + 'px';
     this.window.style.right = 'auto';
     this.window.style.bottom = 'auto';
   };
@@ -141,6 +146,83 @@ class GanttChart {
     document.removeEventListener('mousemove', this.handleDrag);
     document.removeEventListener('mouseup', this.handleDragEnd);
   };
+  
+  addResizeHandles() {
+    // Remove existing handles if any
+    const existingHandles = this.window.querySelectorAll('.gantt-resize-handle');
+    existingHandles.forEach(handle => handle.remove());
+    
+    // Create resize handles for top, left, right, top-left, top-right, bottom-right
+    const handles = ['top', 'left', 'right', 'top-left', 'top-right', 'bottom-right'];
+    
+    handles.forEach(position => {
+      const handle = document.createElement('div');
+      handle.className = `gantt-resize-handle ${position}`;
+      handle.style.position = 'absolute';
+      handle.style.zIndex = '1001';
+      
+      // Add resize functionality
+      handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startWidth = this.window.offsetWidth;
+        const startHeight = this.window.offsetHeight;
+        const startRight = parseInt(window.getComputedStyle(this.window).right) || 10;
+        const startBottom = parseInt(window.getComputedStyle(this.window).bottom) || 40;
+        
+        const handleResize = (moveEvent) => {
+          moveEvent.preventDefault();
+          const deltaX = moveEvent.clientX - startX;
+          const deltaY = moveEvent.clientY - startY;
+          
+          if (position.includes('top')) {
+            const newHeight = startHeight - deltaY;
+            if (newHeight >= 200 && newHeight <= window.innerHeight - 50) {
+              this.window.style.height = newHeight + 'px';
+            }
+          }
+          
+          if (position === 'bottom-right') {
+            // Bottom-right corner: resize width and height
+            const newWidth = startWidth + deltaX;
+            const newHeight = startHeight + deltaY;
+            if (newWidth >= 500 && newWidth <= window.innerWidth - startRight - 10) {
+              this.window.style.width = newWidth + 'px';
+            }
+            if (newHeight >= 200 && newHeight <= window.innerHeight - 50) {
+              this.window.style.height = newHeight + 'px';
+            }
+          } else if (position.includes('left')) {
+            // Left resize: decrease width from left side
+            // Since window is positioned from right, we just change width
+            const newWidth = startWidth - deltaX;
+            if (newWidth >= 500 && newWidth <= window.innerWidth - startRight - 10) {
+              this.window.style.width = newWidth + 'px';
+            }
+          } else if (position.includes('right') && position !== 'bottom-right') {
+            // Right resize: increase width
+            const newWidth = startWidth + deltaX;
+            if (newWidth >= 500 && newWidth <= window.innerWidth - startRight - 10) {
+              this.window.style.width = newWidth + 'px';
+            }
+          }
+        };
+        
+        const stopResize = () => {
+          document.removeEventListener('mousemove', handleResize);
+          document.removeEventListener('mouseup', stopResize);
+        };
+        
+        document.addEventListener('mousemove', handleResize);
+        document.addEventListener('mouseup', stopResize);
+      });
+      
+      this.window.appendChild(handle);
+    });
+  }
   
   jumpToToday() {
     const today = new Date();
@@ -197,16 +279,22 @@ class GanttChart {
     console.log('📂 Opening Gantt window');
     this.window.classList.add('visible');
     
-    // Position lower and more to the right (14cm down = ~530px, 5cm right = ~189px)
+    // Position in bottom-right corner (7cm high x 30cm wide)
     this.window.style.display = 'flex';
     this.window.style.position = 'fixed';
-    this.window.style.bottom = '-460px';  // 70px - 530px = -460px (lower)
-    this.window.style.right = '-169px';   // 20px - 189px = -169px (more right)
-    this.window.style.width = '1000px';
-    this.window.style.height = '500px';
-    this.window.style.zIndex = '1000';
+    this.window.style.bottom = '40px';
+    this.window.style.right = '10px';
+    this.window.style.left = 'auto';
+    this.window.style.top = 'auto';
+    this.window.style.transform = 'none';
+    this.window.style.width = '30cm';
+    this.window.style.height = '7cm';
+    this.window.style.zIndex = '999';
     
-    console.log('   ✅ Gantt window opened at adjusted position');
+    // Add resize handles
+    this.addResizeHandles();
+    
+    console.log('   ✅ Gantt window opened in bottom-right corner');
     
     if (this.toggleBtn) {
       this.toggleBtn.style.display = 'none';
@@ -437,18 +525,40 @@ class GanttChart {
   }
   
   calculateDateRange() {
-    let minDate = new Date();
-    let maxDate = new Date();
+    let minDate = null;
+    let maxDate = null;
     
     for (const [, blockData] of this.filteredData) {
       const { plannedStart, plannedFinish } = blockData;
       
-      if (plannedStart && plannedStart < minDate) {
+      if (plannedStart && (!minDate || plannedStart < minDate)) {
         minDate = new Date(plannedStart);
       }
       
-      if (plannedFinish && plannedFinish > maxDate) {
+      if (plannedFinish && (!maxDate || plannedFinish > maxDate)) {
         maxDate = new Date(plannedFinish);
+      }
+    }
+    
+    // Fallback to current date if no data
+    if (!minDate) minDate = new Date();
+    if (!maxDate) maxDate = new Date();
+    
+    const today = new Date();
+    
+    // ALWAYS ensure timeline includes today's date for proper Today line positioning
+    // This is critical when filtered blocks start after today
+    if (today < minDate) {
+      console.log(`📅 Extending timeline to include today: ${this.formatDate(today)} (earliest block: ${this.formatDate(minDate)})`);
+      minDate = new Date(today);
+    }
+    
+    // If there's a custom today line position (user dragged it), ensure that's visible too
+    if (this.todayLinePosition) {
+      const todayLineDate = new Date(this.todayLinePosition);
+      if (todayLineDate < minDate) {
+        console.log(`📅 Extending timeline to include custom today line: ${this.formatDate(todayLineDate)}`);
+        minDate = new Date(todayLineDate);
       }
     }
     
@@ -456,6 +566,8 @@ class GanttChart {
     minDate.setDate(1); // Start of month
     maxDate.setMonth(maxDate.getMonth() + 1);
     maxDate.setDate(0); // End of month
+    
+    console.log(`📊 Timeline range: ${this.formatDate(minDate)} to ${this.formatDate(maxDate)}`);
     
     return { minDate, maxDate };
   }
@@ -467,7 +579,7 @@ class GanttChart {
     // Header label
     const header = document.createElement('div');
     header.className = 'gantt-timeline-header';
-    header.textContent = 'Blocks';
+    header.textContent = 'Construction Activity';
     this.timeline.appendChild(header);
     
     // Timeline grid
@@ -657,10 +769,23 @@ class GanttChart {
     // Calculate position
     const position = this.calculateBarPosition(todayDate, minDate);
     
+    // Add label column width (200px) to position - today line must align with timeline grid
+    const LABEL_WIDTH = 200;
+    const adjustedPosition = LABEL_WIDTH + position;
+    
+    console.log(`📍 Today line calculation:`, {
+      todayDate: this.formatDate(todayDate),
+      minDate: this.formatDate(minDate),
+      basePosition: position,
+      labelWidth: LABEL_WIDTH,
+      finalPosition: adjustedPosition,
+      pixelsPerDay: this.pixelsPerDay
+    });
+    
     // Create today line
     const line = document.createElement('div');
     line.className = 'gantt-today-line';
-    line.style.left = position + 'px';
+    line.style.left = adjustedPosition + 'px';
     
     // Make it draggable
     let isDragging = false;
@@ -924,7 +1049,7 @@ class GanttChart {
 
   /**
    * Apply contractor-based colors to blocks in 3D model
-   * Blue for SPML, Golden for ABR
+   * Light Blue for SPML, Golden for ABR
    */
   applyContractorColors(blockMap, contractorBlockMap) {
     console.log('🎨 Applying contractor-based colors to blocks...');
@@ -933,7 +1058,7 @@ class GanttChart {
 
     // Define contractor colors (matching Gantt chart)
     const contractorColors = {
-      'SPML': { r: 0, g: 102, b: 255, a: 0.8 },     // Blue for SPML
+      'SPML': { r: 102, g: 179, b: 255, a: 0.8 },     // Light Blue for SPML
       'ABR': { r: 218, g: 165, b: 32, a: 0.8 }       // Golden for ABR
     };
 
@@ -1074,7 +1199,7 @@ class GanttChart {
     
     // Define contractor colors
     const contractorColors = {
-      'SPML': '#0066FF',     // Blue for SPML
+      'SPML': '#66B3FF',     // Light Blue for SPML
       'ABR': '#DAA520'       // Golden for ABR
     };
     
@@ -1113,7 +1238,20 @@ class GanttChart {
   
   calculateBarPosition(startDate, timelineStart) {
     const daysDiff = Math.floor((startDate - timelineStart) / (1000 * 60 * 60 * 24));
-    return daysDiff * this.pixelsPerDay;
+    const position = daysDiff * this.pixelsPerDay;
+    
+    // Debug for today line positioning issues
+    if (startDate.getDate() === 24 && startDate.getMonth() === 10) { // Nov 24 (month is 0-indexed)
+      console.log(`🔍 calculateBarPosition for Nov 24:`, {
+        startDate: startDate.toISOString(),
+        timelineStart: timelineStart.toISOString(),
+        daysDiff: daysDiff,
+        pixelsPerDay: this.pixelsPerDay,
+        position: position
+      });
+    }
+    
+    return position;
   }
   
   calculateBarWidth(startDate, endDate) {

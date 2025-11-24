@@ -328,14 +328,14 @@ function createLabelElement(block, color, blockInfo) {
   label.className = 'block-label-badge';
   label.textContent = block;
 
-  // Determine contractor-based color - ONLY two colors: Blue for SPML, Golden for ABR
+  // Determine contractor-based color - ONLY two colors: Light Blue for SPML, Golden for ABR
   let finalColor = '#999999'; // Default gray if no contractor
 
   // Get contractor info from blockInfo if available
   if (blockInfo.contractor) {
     const contractor = blockInfo.contractor.toUpperCase().trim();
     if (contractor === 'SPML') {
-      finalColor = '#0066FF'; // Blue for SPML
+      finalColor = '#66B3FF'; // Light Blue for SPML
     } else if (contractor === 'ABR') {
       finalColor = '#FFD700'; // Golden for ABR
     }

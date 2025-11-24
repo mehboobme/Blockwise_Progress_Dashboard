@@ -552,7 +552,7 @@ class EmbeddedColorManager {
     const legend = [
       {
         label: 'SPML',
-        color: { r: 0, g: 102, b: 255, a: 1.0 }, // Blue
+        color: { r: 102, g: 179, b: 255, a: 1.0 }, // Light Blue
         symbol: 'circle'
       },
       {
