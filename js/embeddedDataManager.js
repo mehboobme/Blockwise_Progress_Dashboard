@@ -172,14 +172,29 @@ class EmbeddedDataManager {
     }
     
     dataParser.rawData.forEach(row => {
-      const plot = String(row.Plot || row.plot || '').trim();
+      // Helper function to get column value handling trailing spaces
+      const getColumn = (row, ...possibleNames) => {
+        // First try exact matches
+        for (const name of possibleNames) {
+          if (row[name] !== undefined) return row[name];
+        }
+        // Then try case-insensitive match with trimmed keys
+        const rowKeys = Object.keys(row);
+        for (const name of possibleNames) {
+          const found = rowKeys.find(k => k.trim().toLowerCase() === name.toLowerCase());
+          if (found) return row[found];
+        }
+        return '';
+      };
+
+      const plot = String(getColumn(row, 'Plot', 'plot')).trim();
       if (!plot) return;
-      
+
       this.excelData.set(plot, {
-        status: row.Status || row.status || '',
-        precaster: row.PreCaster || row.Precaster || row.precaster || '',
-        villaType: row.Villa || row.villa || '',
-        block: row.Block || row.block || ''
+        status: getColumn(row, 'Status', 'status'),
+        precaster: getColumn(row, 'PreCaster', 'Precaster', 'precaster'),
+        villaType: getColumn(row, 'Villa', 'villa'),
+        block: getColumn(row, 'Block', 'block')
       });
     });
     

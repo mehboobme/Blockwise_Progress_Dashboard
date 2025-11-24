@@ -27,9 +27,9 @@
         <button id="loginBtn" class="btn btn-success">Login to Autodesk</button>
         <button id="logoutBtn" class="btn btn-secondary" style="display: none;">Logout</button>
       </div>
-      <button id="toggleScheduleBtn" class="btn btn-secondary" onclick="window.toggleSchedulePanel()" style="display: none;">📅 Schedule</button>
       <button id="loadModelBtn" class="btn btn-primary" disabled>Load Model</button>
       <button id="analyzeBtn" class="btn btn-warning" disabled>Analyze Model</button>
+      <button id="ganttToggle" class="btn btn-primary" title="Toggle Gantt Chart">📊 Gantt Chart</button>
     </div>
   </header>
 
@@ -58,7 +58,7 @@
         </div>
 
         <div class="control-group">
-          <label for="filterBlock">Block:</label>
+          <label for="filterBlock">Construction Activity:</label>
           <select id="filterBlock" disabled>
             <option value="">All</option>
           </select>
@@ -66,13 +66,16 @@
 
         <div class="control-group">
           <label for="filterPlot">Plot:</label>
-          <select id="filterPlot" disabled>
+          <input type="text" id="filterPlot" list="plotList" placeholder="Type or select plot..." disabled style="width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px;">
+          <datalist id="plotList">
             <option value="">All</option>
-          </select>
+          </datalist>
         </div>
 
         <button id="applyFiltersBtn" class="btn btn-primary btn-full" disabled>Apply Filters</button>
-        <button id="clearFiltersBtn" class="btn btn-secondary btn-full" disabled>Clear Filters</button>
+        <button id="clearFiltersBtn" class="btn btn-secondary btn-full" disabled>Include Infra</button>
+        <button id="clearAllBtn" class="btn btn-secondary btn-full">Clear All</button>
+        <button id="resetBtn" class="btn btn-warning btn-full">Reset</button>
       </div>
 
       <!-- Controls Panel -->
@@ -155,6 +158,13 @@
     import { testColoring } from './js/test-coloring.js';
     import { showInteractiveBlockList, hideBlockLabels } from './js/visual-block-identifier.js';
     import { debugBlockLabelSystem, testSingleLabel, fixPanelPosition } from './js/debug-block-labels.js';
+    import { ganttChart } from './js/ganttChart.js';
+    import { dataParser } from './js/dataParser.js';
+
+    // Expose managers to window for ganttChart.js access
+    window.embeddedColorManager = embeddedColorManager;
+    window.embeddedDataManager = embeddedDataManager;
+    window.viewerManager = viewerManager;
 
     class Dashboard {
       constructor() {
@@ -198,6 +208,8 @@
         // Filters
         document.getElementById('applyFiltersBtn')?.addEventListener('click', () => this.applyFilters());
         document.getElementById('clearFiltersBtn')?.addEventListener('click', () => this.clearFilters());
+        document.getElementById('clearAllBtn')?.addEventListener('click', () => this.clearAll());
+        document.getElementById('resetBtn')?.addEventListener('click', () => this.resetEverything());
         
         // Schedule upload
         document.getElementById('uploadScheduleBtn')?.addEventListener('click', () => {
@@ -229,6 +241,27 @@
         // Export data
         document.getElementById('exportDataBtn')?.addEventListener('click', () => this.exportData());
 
+        // Gantt chart toggle - wait for module to load
+        document.getElementById('ganttToggle')?.addEventListener('click', async () => {
+          console.log('📊 Gantt toggle clicked');
+
+          // Wait for ganttChart to be available
+          let attempts = 0;
+          while (!window.ganttChart && attempts < 10) {
+            console.log('⏳ Waiting for ganttChart module...');
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+          }
+
+          if (window.ganttChart) {
+            console.log('✅ ganttChart exists, calling toggleWindow');
+            window.ganttChart.toggleWindow();
+          } else {
+            console.error('❌ window.ganttChart not found after waiting');
+            alert('Gantt chart module not loaded. Please refresh the page.');
+          }
+        });
+
         // Auth success message
         window.addEventListener('message', (event) => {
           if (event.data.type === 'auth_success') {
@@ -248,6 +281,7 @@
 
         viewerManager.onGeometryLoaded = async () => {
           console.log('📐 Geometry loaded');
+          this.updateStatus('Model loaded - Auto-analyzing...', 'info');
           // Auto-analyze model after geometry loads
           await this.analyzeModel();
         };
@@ -279,36 +313,10 @@
 
           this.modelLoaded = true;
           console.log('✅ Model load complete, instance tree:', viewerManager.instanceTree);
-          this.updateStatus('Model loaded - Click "Analyze Model" button', 'success');
+          this.updateStatus('Model loaded - Waiting for geometry...', 'info');
 
           // Enable basic controls
           this.enableControls();
-
-          // Try auto-trigger with multiple retries
-          let retries = 0;
-          const tryAnalysis = async () => {
-            retries++;
-            console.log(`🔄 Auto-analysis attempt ${retries}/5...`);
-
-            if (this.dataAnalyzed) {
-              console.log('✅ Already analyzed, skipping');
-              return;
-            }
-
-            if (viewerManager.instanceTree) {
-              console.log('✅ Instance tree ready, starting analysis');
-              await this.analyzeModel();
-            } else if (retries < 5) {
-              console.warn(`⚠️ Instance tree not ready yet (attempt ${retries}/5), retrying in 2 seconds...`);
-              setTimeout(tryAnalysis, 2000);
-            } else {
-              console.error('❌ Instance tree not ready after 5 attempts. Please click "Analyze Model" button manually.');
-              this.updateStatus('Model loaded - Click "Analyze Model" to continue', 'warning');
-            }
-          };
-
-          // Start first attempt after 2 seconds
-          setTimeout(tryAnalysis, 2000);
 
         } catch (error) {
           console.error('❌ Model load error:', error);
@@ -325,24 +333,31 @@
         // Check if viewer has instance tree
         if (!viewerManager.instanceTree) {
           console.warn('⚠️ Instance tree not ready yet, waiting 2 more seconds...');
+          this.updateStatus('Waiting for model to be ready...', 'info');
           setTimeout(() => this.analyzeModel(), 2000);
           return;
         }
 
         try {
-          this.updateStatus('Analyzing model properties (this may take a few minutes)...', 'info');
+          this.updateStatus('🔍 Starting analysis - Extracting villa elements...', 'info');
           console.log('🔍 Starting model analysis...');
 
-          // Analyze model with progress callback
+          // Show progress immediately
+          let lastUpdate = Date.now();
           const progressCallback = (progress, message) => {
-            this.updateStatus(`${message} - ${progress}% complete`, 'info');
+            // Throttle updates to every 500ms to avoid overwhelming the UI
+            const now = Date.now();
+            if (now - lastUpdate > 500) {
+              this.updateStatus(`📊 ${message} - ${progress}% complete`, 'info');
+              lastUpdate = now;
+            }
           };
 
           const stats = await embeddedDataManager.analyzeModel(progressCallback);
 
           this.dataAnalyzed = true;
           console.log('✅ Analysis complete:', stats);
-          this.updateStatus(`Analysis complete: ${stats.phases} phases, ${stats.neighborhoods} neighborhoods, ${stats.blocks} blocks, ${stats.plots} plots`, 'success');
+          this.updateStatus(`✅ Analysis complete: ${stats.phases} phases, ${stats.neighborhoods} neighborhoods, ${stats.blocks} construction activities, ${stats.plots} plots`, 'success');
 
           // Populate filter dropdowns
           this.populateFilters();
@@ -383,6 +398,73 @@
 
           // Update legend
           this.updateLegend();
+
+          // Check if ANY filter is active and reapply precaster label filter
+          let activeFilter = false;
+          let visiblePlots = [];
+          
+          // Check 1: Gantt filter active AND Gantt chart is visible?
+          const ganttWindow = document.querySelector('.gantt-window.visible');
+          if (ganttWindow && window.ganttChart && window.ganttChart.filteredData && window.ganttChart.filteredData.size > 0) {
+            console.log('🔄 Gantt filter active (chart visible), extracting visible plots...');
+            activeFilter = true;
+            
+            // Get visible plots from Gantt filtered data
+            for (const [blockKey, blockData] of window.ganttChart.filteredData) {
+              const blockVillas = window.ganttChart.villaData.filter(row => {
+                const blockNum = String(row.Block || row.block).trim();
+                return blockNum === blockKey;
+              });
+              blockVillas.forEach(villa => {
+                const plotNum = String(villa.Plot || villa.plot).trim();
+                visiblePlots.push(plotNum);
+              });
+            }
+          }
+          // Check 2: Sidebar filter active?
+          else {
+            const phase = document.getElementById('filterPhase').value;
+            const neighborhood = document.getElementById('filterNeighborhood').value;
+            const block = document.getElementById('filterBlock').value;
+            const plot = document.getElementById('filterPlot').value;
+            
+            if (phase || neighborhood || block || plot) {
+              console.log('🔄 Sidebar filter active, extracting visible plots...');
+              activeFilter = true;
+              
+              // Get filtered DBIds based on sidebar filters
+              let filteredDbIds = [];
+              if (plot) {
+                filteredDbIds = embeddedDataManager.getElementsByPlot(plot);
+                visiblePlots = [plot];
+              } else if (block) {
+                filteredDbIds = embeddedDataManager.getElementsByBlock(block);
+              } else if (neighborhood) {
+                filteredDbIds = embeddedDataManager.getElementsByNeighborhood(neighborhood);
+              } else if (phase) {
+                filteredDbIds = embeddedDataManager.getElementsByPhase(phase);
+              }
+              
+              // Extract plot numbers from filtered DBIds (unless we already have them)
+              if (visiblePlots.length === 0 && filteredDbIds.length > 0) {
+                const allPlots = embeddedDataManager.getAllPlots();
+                visiblePlots = allPlots.filter(p => {
+                  const plotDbIds = embeddedDataManager.getElementsByPlot(p);
+                  return plotDbIds.some(id => filteredDbIds.includes(id));
+                });
+              }
+            }
+          }
+          
+          // Apply filter if any filter is active
+          if (activeFilter && visiblePlots.length > 0) {
+            console.log(`   Filtering precaster labels to ${visiblePlots.length} visible plots`);
+            console.log(`   Sample plots: ${visiblePlots.slice(0, 5).join(', ')}`);
+            embeddedColorManager.filterPrecasterLabels(visiblePlots);
+            console.log('   ✅ Precaster filter applied');
+          } else {
+            console.log('ℹ️ No active filter, showing all precaster labels');
+          }
 
         } catch (error) {
           console.error('❌ Color scheme error:', error);
@@ -514,6 +596,21 @@
       showAll() {
         viewerManager.showAll();
         viewerManager.clearSelection();
+        
+        // Show all precaster labels (remove filter)
+        if (window.embeddedColorManager) {
+          window.embeddedColorManager.currentFilter = null;
+          // Get all plots and show their labels
+          const labelsContainer = document.getElementById('precasterLabels');
+          if (labelsContainer) {
+            const labels = labelsContainer.querySelectorAll('.precaster-label');
+            labels.forEach(label => {
+              label.style.display = 'block';
+            });
+            console.log(`🏷️ Showing all ${labels.length} precaster labels`);
+          }
+        }
+        
         this.updateStatus('Showing all elements', 'info');
       }
 
@@ -559,7 +656,7 @@
             <hr>
             <p>Phases: ${stats.phases}</p>
             <p>Neighborhoods: ${stats.neighborhoods}</p>
-            <p>Blocks: ${stats.blocks}</p>
+            <p>Construction Activities: ${stats.blocks}</p>
             <p>Plots: ${stats.plots}</p>
             <p>Components: ${stats.components}</p>
             <hr>
@@ -597,12 +694,12 @@
           blockSelect.innerHTML += `<option value="${block}">${block.toUpperCase()}</option>`;
         });
 
-        // Populate Plot dropdown
-        const plotSelect = document.getElementById('filterPlot');
+        // Populate Plot datalist
+        const plotDatalist = document.getElementById('plotList');
         const plots = embeddedDataManager.getAllPlots();
-        plotSelect.innerHTML = '<option value="">All</option>';
+        plotDatalist.innerHTML = '<option value="">All</option>';
         plots.forEach(plot => {
-          plotSelect.innerHTML += `<option value="${plot}">${plot.toUpperCase()}</option>`;
+          plotDatalist.innerHTML += `<option value="${plot}">${plot}</option>`;
         });
       }
 
@@ -619,28 +716,78 @@
 
         // Collect all elements to show based on filters
         let filteredDbIds = [];
+        let filteredPlots = [];
 
         if (plot) {
           // If plot selected, show only that plot
           filteredDbIds = embeddedDataManager.getElementsByPlot(plot);
+          filteredPlots = [plot];
         } else if (block) {
           // If block selected, show entire block
           filteredDbIds = embeddedDataManager.getElementsByBlock(block);
+          // Get all plots in this block
+          const allPlots = embeddedDataManager.getAllPlots();
+          filteredPlots = allPlots.filter(p => {
+            const plotDbIds = embeddedDataManager.getElementsByPlot(p);
+            return plotDbIds.some(id => filteredDbIds.includes(id));
+          });
         } else if (neighborhood) {
           // If neighborhood selected, show entire neighborhood
           filteredDbIds = embeddedDataManager.getElementsByNeighborhood(neighborhood);
+          // Get all plots in this neighborhood
+          const allPlots = embeddedDataManager.getAllPlots();
+          filteredPlots = allPlots.filter(p => {
+            const plotDbIds = embeddedDataManager.getElementsByPlot(p);
+            return plotDbIds.some(id => filteredDbIds.includes(id));
+          });
         } else if (phase) {
           // If phase selected, show entire phase
           filteredDbIds = embeddedDataManager.getElementsByPhase(phase);
+          // Get all plots in this phase
+          const allPlots = embeddedDataManager.getAllPlots();
+          filteredPlots = allPlots.filter(p => {
+            const plotDbIds = embeddedDataManager.getElementsByPlot(p);
+            return plotDbIds.some(id => filteredDbIds.includes(id));
+          });
         }
 
         if (filteredDbIds.length > 0) {
           viewerManager.isolate(filteredDbIds);
           viewerManager.fitToView(filteredDbIds);
           
-          // If neighborhood selected, show interactive block list
+          // Close Gantt chart when applying sidebar filter (to avoid conflicts)
+          if (window.ganttChart && typeof window.ganttChart.close === 'function') {
+            const ganttWindow = document.querySelector('.gantt-window.visible');
+            if (ganttWindow) {
+              console.log('📊 Closing Gantt chart (sidebar filter active)');
+              window.ganttChart.close();
+            }
+          }
+          
+          // Filter precaster labels to show only visible villas
+          console.log(`🏷️ Filtering precaster labels - found ${filteredPlots.length} visible plots from sidebar filter`);
+          console.log(`   First 10 plots: ${filteredPlots.slice(0, 10).join(', ')}`);
+          
+          // Create precaster labels if they don't exist and we're in Status color scheme
+          const currentScheme = document.getElementById('colorScheme')?.value;
+          const labelsExist = document.getElementById('precasterLabels');
+          
+          if (currentScheme === 'Status' && !labelsExist) {
+            console.log('   ℹ️ Precaster labels not created yet, will filter after color scheme applies');
+          } else if (embeddedColorManager && embeddedColorManager.filterPrecasterLabels) {
+            embeddedColorManager.filterPrecasterLabels(filteredPlots);
+            console.log(`   ✅ Precaster filter applied - ${filteredPlots.length} visible`);
+          } else {
+            console.warn(`   ⚠️ embeddedColorManager not available or no filterPrecasterLabels method`);
+          }
+          
+          // If neighborhood selected, show interactive block list and apply contractor colors
           if (neighborhood) {
             showInteractiveBlockList(neighborhood, filteredDbIds);
+            
+            // Apply contractor colors to blocks
+            this.applyContractorColorsToFiltered(filteredDbIds, neighborhood);
+            
             // Enable schedule toggle button
             const scheduleBtn = document.getElementById('toggleScheduleBtn');
             if (scheduleBtn) scheduleBtn.style.display = 'inline-block';
@@ -651,13 +798,152 @@
           this.updateStatus('No elements match the selected filters', 'warning');
         }
       }
+      
+      applyContractorColorsToFiltered(filteredDbIds, neighborhood) {
+        // Group filtered elements by block
+        const blockMap = new Map();
+        
+        // Get blocks from embeddedDataManager
+        const allBlocks = embeddedDataManager.groupByBlock();
+        
+        for (const [blockKey, blockDbIds] of allBlocks.entries()) {
+          // Check if any DBIds from this block are in filteredDbIds
+          const blockFilteredDbIds = blockDbIds.filter(id => filteredDbIds.includes(id));
+          
+          if (blockFilteredDbIds.length > 0) {
+            // Get contractor from schedule data using dataParser.scheduleByBlock
+            let contractor = null;
+            if (window.dataParser && window.dataParser.scheduleByBlock) {
+              const scheduleData = window.dataParser.scheduleByBlock.get(blockKey);
+              if (scheduleData && scheduleData.villas && scheduleData.villas.length > 0) {
+                // Get contractor from first villa in the block (all villas in same block have same contractor)
+                contractor = scheduleData.villas[0].Contractor;
+                console.log(`   📋 Block ${blockKey}: Found contractor = ${contractor} (from ${scheduleData.villas.length} villas)`);
+              } else {
+                console.log(`   ⚠️ Block ${blockKey}: No schedule data found`);
+              }
+            }
+            
+            blockMap.set(blockKey, {
+              block: blockKey,
+              dbIds: blockFilteredDbIds,
+              contractor: contractor
+            });
+          }
+        }
+        
+        // Apply contractor colors
+        const contractorColors = {
+          'SPML': { r: 0, g: 102, b: 255, a: 1.0 },     // Blue (solid, no transparency)
+          'ABR': { r: 255, g: 215, b: 0, a: 1.0 }        // Bright Gold (solid, no transparency)
+        };
+        const defaultColor = { r: 180, g: 180, b: 180, a: 0.5 };  // Gray for blocks without schedule
+        
+        let spmlCount = 0;
+        let abrCount = 0;
+        let noScheduleCount = 0;
+        
+        for (const [blockKey, blockInfo] of blockMap.entries()) {
+          const contractor = blockInfo.contractor ? blockInfo.contractor.toUpperCase().trim() : null;
+          const color = contractorColors[contractor] || defaultColor;
+          
+          blockInfo.dbIds.forEach(dbId => {
+            viewerManager.setColor(dbId, color);
+          });
+          
+          // Track counts
+          if (contractor === 'SPML') {
+            spmlCount++;
+            console.log(`   ✅ Block ${blockKey}: SPML (Blue) - ${blockInfo.dbIds.length} elements`);
+          } else if (contractor === 'ABR') {
+            abrCount++;
+            console.log(`   ✅ Block ${blockKey}: ABR (Gold) - ${blockInfo.dbIds.length} elements`);
+          } else {
+            noScheduleCount++;
+            console.log(`   ⚪ Block ${blockKey}: No schedule (Gray) - ${blockInfo.dbIds.length} elements`);
+          }
+        }
+        
+        console.log(`🎨 Applied contractor colors to ${blockMap.size} blocks in neighborhood ${neighborhood}`);
+        console.log(`   📊 SPML (Blue): ${spmlCount} blocks | ABR (Gold): ${abrCount} blocks | No Schedule (Gray): ${noScheduleCount} blocks`);
+      }
 
       clearFilters() {
         document.getElementById('filterPhase').value = '';
         document.getElementById('filterNeighborhood').value = '';
         document.getElementById('filterBlock').value = '';
         document.getElementById('filterPlot').value = '';
+        
+        // Clear precaster label filter
+        if (window.embeddedColorManager) {
+          window.embeddedColorManager.currentFilter = null;
+          console.log('🧹 Cleared precaster filter');
+        }
+        
         this.showAll();
+      }
+      
+      clearAll() {
+        // Clear filters first
+        this.clearFilters();
+
+        // Clear block labels
+        if (window.clearBlockLabels) {
+          window.clearBlockLabels();
+        }
+
+        // Clear precaster labels
+        if (window.embeddedColorManager) {
+          window.embeddedColorManager.clearPrecasterLabels();
+        }
+
+        // Clear colors
+        if (window.viewerManager) {
+          window.viewerManager.clearColors();
+        }
+
+        // Reset color scheme dropdown
+        const colorScheme = document.getElementById('colorScheme');
+        if (colorScheme) {
+          colorScheme.value = 'None';
+        }
+
+        // Clear legend
+        const legendDiv = document.getElementById('legend');
+        if (legendDiv) {
+          legendDiv.innerHTML = '';
+        }
+
+        console.log('🧹✨ All labels, filters, and colors cleared');
+      }
+
+      resetEverything() {
+        console.log('🔄 Resetting everything...');
+
+        // Clear all first
+        this.clearAll();
+
+        // Close Gantt chart if open
+        if (window.ganttChart) {
+          window.ganttChart.close();
+        }
+
+        // Reset camera to home view
+        if (window.viewerManager && window.viewerManager.viewer) {
+          window.viewerManager.viewer.navigation.setRequestHomeView(true);
+        }
+
+        // Reapply default color scheme
+        setTimeout(() => {
+          const colorScheme = document.getElementById('colorScheme');
+          if (colorScheme && this.dataAnalyzed) {
+            colorScheme.value = 'Block';
+            this.applyColorScheme('Block');
+          }
+        }, 100);
+
+        this.updateStatus('Reset complete - All views restored to default', 'success');
+        console.log('✅ Reset complete');
       }
 
       async loadScheduleFile(file) {
@@ -716,31 +1002,59 @@
         const legendDiv = document.getElementById('legend');
         if (!legendDiv) return;
 
-        const legendItems = embeddedColorManager.getLegend();
+        let html = '';
 
-        if (legendItems.length === 0) {
-          legendDiv.innerHTML = '';
-          return;
+        // Color scheme legend
+        const legendItems = embeddedColorManager.getLegend();
+        if (legendItems.length > 0) {
+          html += '<div class="legend-container"><h4>Color Legend</h4>';
+          legendItems.forEach(item => {
+            const rgbColor = `rgb(${item.color.r}, ${item.color.g}, ${item.color.b})`;
+            html += `
+              <div class="legend-item">
+                <div class="legend-color" style="background: ${rgbColor};"></div>
+                <span class="legend-label">${item.label}</span>
+                <span class="legend-count">(${item.count})</span>
+              </div>
+            `;
+          });
+          html += '</div>';
         }
 
-        let html = '<div class="legend-container"><h4>Legend</h4>';
+        // Contractor legend (for construction activity labels)
+        const contractorItems = embeddedColorManager.getContractorLegend();
+        if (contractorItems.length > 0) {
+          html += '<div class="legend-container"><h4>Contractor Labels</h4>';
+          contractorItems.forEach(item => {
+            const rgbColor = `rgb(${item.color.r}, ${item.color.g}, ${item.color.b})`;
+            html += `
+              <div class="legend-item">
+                <div class="legend-color" style="background: ${rgbColor}; border-radius: 50%; width: 20px; height: 20px;"></div>
+                <span class="legend-label">${item.label}</span>
+              </div>
+            `;
+          });
+          html += '</div>';
+        }
 
-        legendItems.forEach(item => {
-          const rgbColor = `rgb(${item.color.r}, ${item.color.g}, ${item.color.b})`;
-          html += `
-            <div class="legend-item">
-              <div class="legend-color" style="background: ${rgbColor};"></div>
-              <span class="legend-label">${item.label}</span>
-              <span class="legend-count">(${item.count})</span>
-            </div>
-          `;
-        });
+        // Precaster legend
+        const precasterItems = embeddedColorManager.getPrecasterLegend();
+        if (precasterItems.length > 0) {
+          html += '<div class="legend-container"><h4>Precasters</h4>';
+          precasterItems.forEach(item => {
+            html += `
+              <div class="legend-item">
+                <span class="legend-label" style="font-size: 11px;">${item.label}</span>
+              </div>
+            `;
+          });
+          html += '</div>';
+        }
 
-        html += '</div>';
         legendDiv.innerHTML = html;
       }
 
-      exportData() {
+      updateStats() {
         const data = embeddedDataManager.exportData();
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1153,6 +1467,7 @@
     window.dashboard = dashboard;
     window.embeddedDataManager = embeddedDataManager;
     window.viewerManager = viewerManager;
+    window.ganttChart = ganttChart;
     window.findExactPropertyNames = findExactPropertyNames;
     window.findVillaElements = findVillaElements;
     window.searchForRealVillas = searchForRealVillas;
@@ -1194,19 +1509,13 @@
         <button id="ganttResetFilter" class="gantt-btn-filter">Reset</button>
       </div>
       <div class="gantt-view-group">
-        <label style="display: flex; align-items: center; gap: 4px;">
-          <input type="checkbox" id="ganttLookAhead">
-          Look Ahead:
-          <input type="number" id="ganttLookAheadWeeks" class="gantt-weeks-input" value="12" min="1" max="52" title="Number of weeks">
-          <span style="font-size: 11px;">weeks</span>
-        </label>
         <label>
           <input type="checkbox" id="ganttShowVillas">
           Show Villas in Chart
         </label>
         <label>
           <input type="checkbox" id="ganttFilterModel">
-          Filter Villas in Model
+          Filter Current Activities
         </label>
       </div>
     </div>
@@ -1216,16 +1525,6 @@
     </div>
   </div>
 
-  <!-- Gantt Chart Toggle Button -->
-  <button id="ganttToggle" class="gantt-toggle-btn" title="Toggle Gantt Chart">
-    📊 Schedule
-  </button>
-
-  <!-- Import Gantt Chart Module -->
-  <script type="module">
-    import { ganttChart } from './js/ganttChart.js';
-    window.ganttChart = ganttChart;
-  </script>
 
 </body>
 </html>

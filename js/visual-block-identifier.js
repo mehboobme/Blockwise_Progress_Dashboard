@@ -328,12 +328,25 @@ function createLabelElement(block, color, blockInfo) {
   label.className = 'block-label-badge';
   label.textContent = block;
 
+  // Determine contractor-based color - ONLY two colors: Blue for SPML, Golden for ABR
+  let finalColor = '#999999'; // Default gray if no contractor
+
+  // Get contractor info from blockInfo if available
+  if (blockInfo.contractor) {
+    const contractor = blockInfo.contractor.toUpperCase().trim();
+    if (contractor === 'SPML') {
+      finalColor = '#0066FF'; // Blue for SPML
+    } else if (contractor === 'ABR') {
+      finalColor = '#FFD700'; // Golden for ABR
+    }
+  }
+
   label.style.cssText = `
     position: absolute;
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: ${color};
+    background: ${finalColor};
     display: flex;
     align-items: center;
     justify-content: center;
@@ -564,7 +577,7 @@ function showBlockSchedulePanel(blockNumber) {
       <button onclick="this.parentElement.parentElement.remove()" style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.1); border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-weight: bold; font-size: 16px; line-height: 1;">✕</button>
     </div>
     <div style="background: white; padding: 8px; text-align: center; font-weight: bold; border-bottom: 1px solid #ccc;">
-      Qanbar Schedule
+      Schedule
     </div>
     <table style="width: 100%; border-collapse: collapse;">
       <tr>
@@ -612,7 +625,7 @@ function createSchedulePanel(blockMap) {
     position: fixed;
     top: 80px;
     right: 20px;
-    width: 350px;
+    width: 175px;
     max-height: calc(100vh - 120px);
     background: white;
     border: 2px solid #004E43;
@@ -622,11 +635,15 @@ function createSchedulePanel(blockMap) {
     font-family: Arial, sans-serif;
     display: flex;
     flex-direction: column;
+    resize: both;
+    overflow: auto;
+    min-width: 150px;
+    min-height: 200px;
   `;
   
   let html = `
     <div style="background: linear-gradient(135deg, #004E43 0%, #009A84 100%); color: white; padding: 12px; border-bottom: 2px solid #004E43; text-align: center; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; align-items: center;">
-      <span>📅 Qanbar Schedule</span>
+      <span>📅 Schedule</span>
       <button onclick="document.getElementById('permanentSchedulePanel').remove()" style="background: rgba(255,255,255,0.25); color: white; border: none; padding: 3px 7px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;">✕</button>
     </div>
     <div style="overflow-y: auto; flex: 1; padding: 10px;">
@@ -789,10 +806,20 @@ export async function showInteractiveBlockList(selectedNeighborhood, filteredDbI
     if (!block) continue;
 
     if (!blockMap.has(block)) {
+      // Get contractor from schedule data
+      let contractor = null;
+      if (window.dataParser && window.dataParser.scheduleByBlock) {
+        const scheduleData = window.dataParser.scheduleByBlock.get(String(block).trim());
+        if (scheduleData && scheduleData.villas && scheduleData.villas.length > 0) {
+          contractor = scheduleData.villas[0].Contractor;
+        }
+      }
+      
       blockMap.set(block, {
         block: block,
         dbIds: [],
-        types: new Set()
+        types: new Set(),
+        contractor: contractor  // Add contractor info
       });
     }
 

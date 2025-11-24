@@ -82,6 +82,23 @@ class DataParser {
   }
 
   /**
+   * Helper function to get column value handling trailing spaces in column names
+   */
+  getColumn(row, ...possibleNames) {
+    // First try exact matches
+    for (const name of possibleNames) {
+      if (row[name] !== undefined) return row[name];
+    }
+    // Then try case-insensitive match with trimmed keys
+    const rowKeys = Object.keys(row);
+    for (const name of possibleNames) {
+      const found = rowKeys.find(k => k.trim().toLowerCase() === name.toLowerCase());
+      if (found) return row[found];
+    }
+    return '';
+  }
+
+  /**
    * Process and index raw data
    */
   processData() {
@@ -91,22 +108,24 @@ class DataParser {
     }
 
     this.parsedData = this.rawData.map(row => {
-      // Extract columns - using direct access and CONFIG as fallback
+      // Extract columns - using helper to handle trailing spaces
       return {
-        project: row.Project || row.project || '',
-        phase: row.Phase || row.phase || '',
-        neighborhood: row.Neighborhood || row.neighborhood || '',
-        sector: row.Sector || row.sector || '',
-        block: row.Block || row.block || '',
-        plot: row.Plot || row.plot || '',
-        villa: row.Villa || row.villa || '',
-        component: row.Component || row.component || '',
-        plannedStart: this.parseDate(row['Planned Start'] || row.plannedStart),
-        plannedFinish: this.parseDate(row['Planned Finish'] || row.plannedFinish),
-        actualStart: this.parseDate(row['Actual Start'] || row.actualStart),
-        actualFinish: this.parseDate(row['Actual Finish'] || row.actualFinish),
-        status: row.Status || row.status || '',
-        precaster: row.PreCaster || row.Precaster || row.precaster || '',
+        project: this.getColumn(row, 'Project', 'project'),
+        phase: this.getColumn(row, 'Phase', 'phase'),
+        neighborhood: this.getColumn(row, 'Neighborhood', 'neighborhood'),
+        sector: this.getColumn(row, 'Sector', 'sector'),
+        block: this.getColumn(row, 'Block', 'block'),
+        plot: this.getColumn(row, 'Plot', 'plot'),
+        villa: this.getColumn(row, 'Villa', 'villa'),
+        component: this.getColumn(row, 'Component', 'component'),
+        plannedStart: this.parseDate(this.getColumn(row, 'Planned Start', 'plannedStart')),
+        plannedFinish: this.parseDate(this.getColumn(row, 'Planned Finish', 'plannedFinish')),
+        actualStart: this.parseDate(this.getColumn(row, 'Actual Start', 'actualStart')),
+        actualFinish: this.parseDate(this.getColumn(row, 'Actual Finish', 'actualFinish')),
+        status: this.getColumn(row, 'Status', 'status'),
+        precaster: this.getColumn(row, 'PreCaster', 'Precaster', 'precaster'),
+        contractor: this.getColumn(row, 'Contractor', 'contractor'),
+        precastFactory: this.getColumn(row, 'Precast Factory', 'PrecastFactory', 'precastFactory'),
         // Original row for reference
         _original: row
       };
@@ -201,18 +220,18 @@ class DataParser {
     let rowsWithDates = 0;
     
     this.rawData.forEach((row, index) => {
-      const block = row.Block || row.block;
+      const block = this.getColumn(row, 'Block', 'block');
       if (!block) {
         if (index < 3) console.log(`   Row ${index}: No block found`, row);
         return;
       }
-      
+
       // Normalize block number to string for consistent lookup
       const blockKey = String(block).trim();
-      
+
       // Get dates - Excel columns are 'Planned Start' and 'Planned Finish'
-      const plannedStart = this.parseExcelDate(row['Planned Start']);
-      const plannedFinish = this.parseExcelDate(row['Planned Finish']);
+      const plannedStart = this.parseExcelDate(this.getColumn(row, 'Planned Start', 'plannedStart'));
+      const plannedFinish = this.parseExcelDate(this.getColumn(row, 'Planned Finish', 'plannedFinish'));
       
       if (index < 5) {
         console.log(`   Row ${index}: Block=${blockKey}`);
@@ -229,15 +248,15 @@ class DataParser {
           blockNumber: block,
           plannedStart: plannedStart,
           plannedFinish: plannedFinish,
-          component: row.Component || 'Precast',
+          component: this.getColumn(row, 'Component', 'component') || 'Precast',
           villas: []
         });
         processedCount++;
       }
-      
+
       // Add villa to block
       const blockData = schedules.get(blockKey);
-      
+
       // Update block dates (earliest start, latest finish)
       if (plannedStart && (!blockData.plannedStart || plannedStart < blockData.plannedStart)) {
         blockData.plannedStart = plannedStart;
@@ -245,13 +264,15 @@ class DataParser {
       if (plannedFinish && (!blockData.plannedFinish || plannedFinish > blockData.plannedFinish)) {
         blockData.plannedFinish = plannedFinish;
       }
-      
+
       // Store individual villa data for Gantt chart
       blockData.villas.push({
-        Plot: row.Plot || row.plot,
-        Villa: row.Villa || row.villa,
-        Status: row.Status || row.status || '',
-        PreCaster: row.PreCaster || row.Precaster || '',
+        Plot: this.getColumn(row, 'Plot', 'plot'),
+        Villa: this.getColumn(row, 'Villa', 'villa'),
+        Status: this.getColumn(row, 'Status', 'status'),
+        PreCaster: this.getColumn(row, 'PreCaster', 'Precaster', 'precaster'),
+        Contractor: this.getColumn(row, 'Contractor', 'contractor'),
+        'Precast Factory': this.getColumn(row, 'Precast Factory', 'PrecastFactory', 'precastFactory'),
         'Planned Start': plannedStart,
         'Planned Finish': plannedFinish
       });

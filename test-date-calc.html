@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Date Calculation Test</title>
+</head>
+<body>
+    <h1>Gantt Date Calculation Debug</h1>
+    <div id="output"></div>
+    
+    <script>
+        const output = document.getElementById('output');
+        
+        // Simulate the exact calculation from ganttChart.js
+        const minDate = new Date(2025, 0, 1); // Jan 1, 2025
+        const todayDate = new Date(2025, 10, 23); // Nov 23, 2025
+        
+        output.innerHTML = `
+            <h3>Min Date (Start): ${minDate.toDateString()}</h3>
+            <h3>Today Date: ${todayDate.toDateString()}</h3>
+            <h3>Min Date Time: ${minDate.getTime()}</h3>
+            <h3>Today Date Time: ${todayDate.getTime()}</h3>
+            <hr>
+            <h3>Calculation:</h3>
+            <p>Difference in ms: ${todayDate - minDate}</p>
+            <p>Days difference: ${Math.round((todayDate - minDate) / (1000 * 60 * 60 * 24))}</p>
+            <p>Expected position (3px per day): ${Math.round((todayDate - minDate) / (1000 * 60 * 60 * 24)) * 3}px</p>
+            <hr>
+            <h3>Month-by-month accumulation:</h3>
+        `;
+        
+        let html = '';
+        let totalDays = 0;
+        let totalPx = 0;
+        const currentDate = new Date(minDate);
+        
+        while (currentDate <= todayDate) {
+            const monthStart = new Date(currentDate);
+            const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
+            const daysInMonth = monthEnd.getDate();
+            const monthWidth = daysInMonth * 3;
+            
+            html += `<p>${monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}: ${daysInMonth} days = ${monthWidth}px | Total: ${totalPx}px</p>`;
+            
+            totalDays += daysInMonth;
+            totalPx += monthWidth;
+            currentDate.setMonth(currentDate.getMonth() + 1);
+        }
+        
+        output.innerHTML += html;
+        output.innerHTML += `<hr><h3>Total up to Nov 2025: ${totalDays} days, ${totalPx}px</h3>`;
+        output.innerHTML += `<h3>Nov 23 position should be: ${totalPx - (30 - 23) * 3}px (912px + 23*3 = 981px)</h3>`;
+    </script>
+</body>
+</html>

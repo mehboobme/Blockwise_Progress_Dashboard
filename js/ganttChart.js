@@ -75,11 +75,23 @@ class GanttChart {
     document.getElementById('ganttLookAhead')?.addEventListener('change', (e) => {
       this.showLookAhead = e.target.checked;
       this.renderChart();
+
+      // If model filter is enabled, re-apply it with Look Ahead filter
+      const filterModelCheckbox = document.getElementById('ganttFilterModel');
+      if (filterModelCheckbox && filterModelCheckbox.checked) {
+        this.filterVillasInModel(true);
+      }
     });
-    
+
     document.getElementById('ganttLookAheadWeeks')?.addEventListener('change', () => {
       if (this.showLookAhead) {
         this.renderChart();
+
+        // If model filter is enabled, re-apply it with new week count
+        const filterModelCheckbox = document.getElementById('ganttFilterModel');
+        if (filterModelCheckbox && filterModelCheckbox.checked) {
+          this.filterVillasInModel(true);
+        }
       }
     });
     
@@ -159,25 +171,70 @@ class GanttChart {
   }
   
   toggleWindow() {
-    if (this.window.classList.contains('visible')) {
+    // Prevent double-clicking
+    if (this._toggling) {
+      console.log('⏳ Still processing previous toggle, please wait...');
+      return;
+    }
+    
+    this._toggling = true;
+    setTimeout(() => { this._toggling = false; }, 1000);
+    
+    const isVisible = this.window.classList.contains('visible');
+    console.log('🔄 toggleWindow - currently visible:', isVisible);
+    console.log('   window classes:', this.window.className);
+    
+    if (isVisible) {
+      console.log('   → Closing');
       this.close();
     } else {
+      console.log('   → Opening');
       this.open();
     }
   }
   
   open() {
+    console.log('📂 Opening Gantt window');
     this.window.classList.add('visible');
-    this.toggleBtn.style.display = 'none';
+    
+    // Position lower and more to the right (14cm down = ~530px, 5cm right = ~189px)
+    this.window.style.display = 'flex';
+    this.window.style.position = 'fixed';
+    this.window.style.bottom = '-460px';  // 70px - 530px = -460px (lower)
+    this.window.style.right = '-169px';   // 20px - 189px = -169px (more right)
+    this.window.style.width = '1000px';
+    this.window.style.height = '500px';
+    this.window.style.zIndex = '1000';
+    
+    console.log('   ✅ Gantt window opened at adjusted position');
+    
+    if (this.toggleBtn) {
+      this.toggleBtn.style.display = 'none';
+    }
     this.loadScheduleData();
   }
   
   close() {
+    console.log('📕 Closing Gantt window');
     this.window.classList.remove('visible');
-    this.toggleBtn.style.display = 'block';
+    this.window.style.display = 'none'; // Force hide
+    console.log('   Classes after remove:', this.window.className);
+    if (this.toggleBtn) {
+      this.toggleBtn.style.display = 'block';
+    }
     // Clear labels when closing window
     this.clearBlockLabels();
     this.currentBlockMap = null;
+    
+    // Clear Gantt filter data when closing
+    this.filteredData = null;
+    
+    // Don't hide precaster labels - let sidebar filter or color scheme handle them
+    // Just clear the Gantt filter from embeddedColorManager
+    if (window.embeddedColorManager) {
+      window.embeddedColorManager.currentFilter = null;
+      console.log('🗑️ Cleared Gantt precaster filter (labels will follow sidebar filter or show all)');
+    }
   }
   
   minimize() {
@@ -238,6 +295,13 @@ class GanttChart {
     
     console.log(`✅ Loaded ${this.scheduleData.size} blocks from schedule`);
     
+    // Enable color scheme dropdown when Gantt data is loaded
+    const colorSchemeSelect = document.getElementById('colorScheme');
+    if (colorSchemeSelect) {
+      colorSchemeSelect.disabled = false;
+      console.log('✅ Color scheme dropdown enabled');
+    }
+    
     // Debug: Log first block's data structure
     if (this.scheduleData.size > 0) {
       const firstBlock = Array.from(this.scheduleData.entries())[0];
@@ -257,23 +321,27 @@ class GanttChart {
   applyDateFilter() {
     const startInput = document.getElementById('ganttStartDate');
     const endInput = document.getElementById('ganttEndDate');
-    
+
     const startDate = startInput.value ? new Date(startInput.value) : null;
     const endDate = endInput.value ? new Date(endInput.value) : null;
-    
+
     if (startDate && endDate && startDate > endDate) {
       alert('Start date must be before end date');
       return;
     }
-    
+
     this.dateRange.start = startDate;
     this.dateRange.end = endDate;
-    
+
     console.log(`📅 Applying date filter: ${startDate?.toDateString() || 'none'} to ${endDate?.toDateString() || 'none'}`);
     console.log('   Filter active:', !!(this.dateRange.start || this.dateRange.end));
-    
+
     this.applyFilters();
     this.renderChart();
+
+    // Auto-trigger 3D model filter when date filter is applied
+    console.log('🎯 Auto-triggering 3D model filter...');
+    this.filterVillasInModel(true);
   }
   
   resetFilter() {
@@ -281,11 +349,17 @@ class GanttChart {
     document.getElementById('ganttEndDate').value = '';
     this.dateRange.start = null;
     this.dateRange.end = null;
-    
+
     console.log('🔄 Resetting date filters');
-    
+
     this.applyFilters();
     this.renderChart();
+
+    // If model filter is enabled, re-apply it with cleared date range
+    const filterModelCheckbox = document.getElementById('ganttFilterModel');
+    if (filterModelCheckbox && filterModelCheckbox.checked) {
+      this.filterVillasInModel(true);
+    }
   }
   
   applyFilters() {
@@ -652,6 +726,9 @@ class GanttChart {
     const originalFilteredSize = this.filteredData.size;
     const newFilteredData = new Map();
     
+    // Find earliest block start date for From date
+    let earliestDate = null;
+    
     for (const [blockKey, blockData] of this.scheduleData.entries()) {
       let { plannedStart, plannedFinish } = blockData;
       
@@ -664,6 +741,11 @@ class GanttChart {
       }
       
       if (!plannedStart || isNaN(plannedStart.getTime())) continue;
+      
+      // Track earliest date
+      if (!earliestDate || plannedStart < earliestDate) {
+        earliestDate = plannedStart;
+      }
       
       // Include blocks that start on or before the today line
       if (plannedStart <= todayDate) {
@@ -678,87 +760,148 @@ class GanttChart {
     this.filteredData = newFilteredData;
     console.log(`✅ Filtered from ${originalFilteredSize} to ${this.filteredData.size} blocks`);
     
+    // Update From/To date inputs
+    const fromDate = earliestDate || todayDate;
+    document.getElementById('ganttStartDate').value = fromDate.toISOString().split('T')[0];
+    document.getElementById('ganttEndDate').value = todayDate.toISOString().split('T')[0];
+    
+    // Update internal date range
+    this.dateRange.start = fromDate;
+    this.dateRange.end = todayDate;
+    
     // Re-render chart with filtered data
     this.renderChart();
+    
+    // ALWAYS trigger model filtering when today is dragged (no checkbox check needed)
+    this.filterVillasInModel(true);
   }
   
-  filterVillasInModel(enabled) {
+  async filterVillasInModel(enabled) {
     // Check if viewer and data managers are available
     if (!window.viewerManager || !window.viewerManager.viewer) {
       console.warn('⚠️ Viewer not available for villa filtering');
       return;
     }
-    
+
     if (!window.embeddedDataManager) {
       console.warn('⚠️ Embedded data manager not available. Please analyze the model first.');
       return;
     }
-    
+
     const viewer = window.viewerManager.viewer;
     const model = viewer.model;
-    
+
     if (!model) {
       console.warn('⚠️ No model loaded');
       return;
     }
-    
+
     if (enabled && this.filteredData.size > 0) {
       // Get all scheduled plot numbers from filtered data
       const scheduledPlots = new Set();
       const blockMap = new Map();
-      
-      for (const [blockKey] of this.filteredData) {
+      const contractorBlockMap = new Map(); // Map block to contractor
+
+      for (const [blockKey, blockData] of this.filteredData) {
         const blockVillas = this.villaData.filter(row => {
           const blockNum = String(row.Block || row.block).trim();
           return blockNum === blockKey;
         });
-        
+
         const blockDbIds = [];
-        
+        let blockContractor = null;
+
         blockVillas.forEach(villa => {
           const plotNum = String(villa.Plot || villa.plot).trim();
           scheduledPlots.add(plotNum);
-          
+
+          // Get contractor from first villa (all villas in a block should have same contractor)
+          if (!blockContractor && (villa.Contractor || villa.contractor)) {
+            blockContractor = villa.Contractor || villa.contractor;
+          }
+
           // Get DBIDs for this plot
           const plotDbIds = window.embeddedDataManager.getElementsByPlot(plotNum);
           if (plotDbIds && plotDbIds.length > 0) {
             blockDbIds.push(...plotDbIds);
           }
         });
-        
+
         // Store block data for labels
         if (blockDbIds.length > 0) {
           blockMap.set(blockKey, {
             block: blockKey,
             dbIds: blockDbIds,
-            types: new Set()
+            types: new Set(),
+            contractor: blockContractor
           });
+
+          // Store contractor for this block
+          if (blockContractor) {
+            contractorBlockMap.set(blockKey, blockContractor);
+            console.log(`   Block ${blockKey}: Contractor = ${blockContractor}`);
+          } else {
+            console.log(`   Block ${blockKey}: No contractor found`);
+          }
         }
       }
-      
+
       console.log(`🏛️ Filtering model to show ${scheduledPlots.size} scheduled villas from ${this.filteredData.size} blocks`);
-      
+
       // Use embeddedDataManager to get DBIDs (same as sidebar filters)
       const dbIdsToShow = [];
-      
+
       for (const plotNum of scheduledPlots) {
         const plotDbIds = window.embeddedDataManager.getElementsByPlot(plotNum);
         if (plotDbIds && plotDbIds.length > 0) {
           dbIdsToShow.push(...plotDbIds);
         }
       }
-      
+
       if (dbIdsToShow.length > 0) {
         // Use isolate() and fitToView() - same as sidebar filters
         window.viewerManager.isolate(dbIdsToShow);
         window.viewerManager.fitToView(dbIdsToShow);
-        
+
+        // Check current color scheme and apply accordingly
+        const colorSchemeDropdown = document.getElementById('colorScheme');
+        const currentScheme = colorSchemeDropdown ? colorSchemeDropdown.value : null;
+
+        if (currentScheme === 'Status') {
+          // DON'T recreate labels - just filter existing ones
+          // The labels were already created by applyColorScheme('Status')
+          console.log('ℹ️ Status color scheme active - keeping existing precaster labels and colors');
+        } else if (currentScheme === 'Block') {
+          // Apply contractor coloring if "By Block" is selected
+          this.applyContractorColors(blockMap, contractorBlockMap);
+        } else {
+          // Default: apply contractor colors for Gantt filtering
+          this.applyContractorColors(blockMap, contractorBlockMap);
+        }
+
+        // Filter precaster labels regardless of color scheme (if they exist)
+        if (window.embeddedColorManager) {
+          const visiblePlots = Array.from(scheduledPlots);
+          const labelsContainer = document.getElementById('precasterLabels');
+          const currentSchemeDropdown = document.getElementById('colorScheme');
+          const currentSchemeValue = currentSchemeDropdown ? currentSchemeDropdown.value : null;
+          
+          if (labelsContainer) {
+            console.log(`🏷️ Filtering ${labelsContainer.querySelectorAll('.precaster-label').length} precaster labels to ${visiblePlots.length} visible villas`);
+            console.log(`   First 10 visible plots: ${visiblePlots.slice(0, 10).join(', ')}`);
+            window.embeddedColorManager.filterPrecasterLabels(visiblePlots);
+          } else {
+            console.log(`ℹ️ No precaster labels exist (current scheme: ${currentSchemeValue})`);
+            console.log(`   💡 Precaster labels only appear with "By Status" color scheme`);
+          }
+        }
+
         // Create block labels (same as visual-block-identifier)
         this.currentBlockMap = blockMap;
         this.createBlockLabels(blockMap);
-        
+
         console.log(`✅ Isolated ${dbIdsToShow.length} elements for ${scheduledPlots.size} scheduled villas`);
-        console.log(`   ${blockMap.size} blocks with floating labels`);
+        console.log(`   ${blockMap.size} blocks with floating labels and contractor colors`);
       } else {
         console.warn('⚠️ No elements found for scheduled plots');
         console.log('   Scheduled plots:', Array.from(scheduledPlots).slice(0, 10));
@@ -766,9 +909,93 @@ class GanttChart {
         console.log('   💡 TIP: Make sure plot numbers in Excel match the model (e.g., "425" vs "425")');
       }
     } else {
-      // Show all when filter is off, but KEEP labels visible
+      // Show all when filter is off, clear colors, clear precaster labels, but KEEP block labels visible
       window.viewerManager.showAll();
-      console.log('🔄 Showing all elements (filter disabled, labels persist)');
+      window.viewerManager.clearColors();
+      
+      // Clear precaster labels when showing all
+      if (window.embeddedColorManager) {
+        window.embeddedColorManager.filterPrecasterLabels([]);
+      }
+      
+      console.log('🔄 Showing all elements (filter disabled, colors cleared, precaster labels cleared, block labels persist)');
+    }
+  }
+
+  /**
+   * Apply contractor-based colors to blocks in 3D model
+   * Blue for SPML, Golden for ABR
+   */
+  applyContractorColors(blockMap, contractorBlockMap) {
+    console.log('🎨 Applying contractor-based colors to blocks...');
+    console.log(`   blockMap size: ${blockMap.size}`);
+    console.log(`   contractorBlockMap size: ${contractorBlockMap.size}`);
+
+    // Define contractor colors (matching Gantt chart)
+    const contractorColors = {
+      'SPML': { r: 0, g: 102, b: 255, a: 0.8 },     // Blue for SPML
+      'ABR': { r: 218, g: 165, b: 32, a: 0.8 }       // Golden for ABR
+    };
+
+    const defaultColor = { r: 102, g: 126, b: 234, a: 0.8 }; // Default purple
+
+    let coloredBlocks = 0;
+    const contractorCounts = { SPML: 0, ABR: 0, Other: 0, Missing: 0 };
+
+    // Debug: Log contractor data
+    console.log('   Contractor map contents:');
+    for (const [key, contractor] of contractorBlockMap) {
+      console.log(`     Block ${key}: ${contractor}`);
+    }
+
+    for (const [blockKey, blockInfo] of blockMap) {
+      const contractor = contractorBlockMap.get(blockKey);
+
+      if (!contractor) {
+        console.log(`  ⚠️ Block ${blockKey}: No contractor found (${blockInfo.dbIds?.length || 0} elements)`);
+        contractorCounts.Missing++;
+        // Still color with default
+        if (blockInfo.dbIds && blockInfo.dbIds.length > 0) {
+          window.viewerManager.setColor(blockInfo.dbIds, defaultColor);
+        }
+        continue;
+      }
+
+      if (!blockInfo.dbIds || blockInfo.dbIds.length === 0) {
+        console.log(`  ⚠️ Block ${blockKey}: No dbIds found for contractor ${contractor}`);
+        continue;
+      }
+
+      // Get contractor color (case-insensitive match)
+      let color = defaultColor;
+      const contractorUpper = contractor.toUpperCase().trim();
+
+      if (contractorUpper === 'SPML') {
+        color = contractorColors['SPML'];
+        contractorCounts.SPML++;
+      } else if (contractorUpper === 'ABR') {
+        color = contractorColors['ABR'];
+        contractorCounts.ABR++;
+      } else {
+        contractorCounts.Other++;
+        console.log(`  Block ${blockKey}: Unknown contractor "${contractor}" (using default color)`);
+      }
+
+      // Apply color to all elements in this block
+      window.viewerManager.setColor(blockInfo.dbIds, color);
+      coloredBlocks++;
+
+      console.log(`  Block ${blockKey}: ${contractor} → RGB(${color.r},${color.g},${color.b}) → ${blockInfo.dbIds.length} elements`);
+    }
+
+    console.log(`✅ Applied contractor colors to ${coloredBlocks} blocks:`);
+    console.log(`   SPML (Blue): ${contractorCounts.SPML} blocks`);
+    console.log(`   ABR (Golden): ${contractorCounts.ABR} blocks`);
+    if (contractorCounts.Other > 0) {
+      console.log(`   Other: ${contractorCounts.Other} blocks`);
+    }
+    if (contractorCounts.Missing > 0) {
+      console.log(`   Missing contractor data: ${contractorCounts.Missing} blocks (colored with default)`);
     }
   }
   
@@ -813,7 +1040,7 @@ class GanttChart {
   }
   
   createTaskRow(blockKey, blockData, minDate, maxDate) {
-    const { blockNumber, plannedStart, plannedFinish, component } = blockData;
+    const { blockNumber, plannedStart, plannedFinish, component, contractor } = blockData;
     
     // Get villa info for this block
     const blockVillas = this.villaData.filter(row => {
@@ -845,11 +1072,29 @@ class GanttChart {
     const barPosition = this.calculateBarPosition(plannedStart, minDate);
     const barWidth = this.calculateBarWidth(plannedStart, plannedFinish);
     
+    // Define contractor colors
+    const contractorColors = {
+      'SPML': '#0066FF',     // Blue for SPML
+      'ABR': '#DAA520'       // Golden for ABR
+    };
+    
+    // Get contractor color (case-insensitive match)
+    let barColor = '#667eea'; // Default color
+    if (contractor) {
+      const contractorUpper = contractor.toUpperCase().trim();
+      if (contractorUpper === 'SPML') {
+        barColor = contractorColors['SPML'];
+      } else if (contractorUpper === 'ABR') {
+        barColor = contractorColors['ABR'];
+      }
+    }
+    
     // Task bar
     const bar = document.createElement('div');
     bar.className = 'gantt-task-bar';
     bar.style.left = barPosition + 'px';
     bar.style.width = barWidth + 'px';
+    bar.style.background = barColor;
     
     const startStr = this.formatDate(plannedStart);
     const endStr = this.formatDate(plannedFinish);
@@ -858,7 +1103,7 @@ class GanttChart {
       <span>${startStr} - ${endStr}</span>
     `;
     
-    bar.title = `Block ${blockNumber}\nStart: ${startStr}\nFinish: ${endStr}`;
+    bar.title = `Block ${blockNumber}\nContractor: ${contractor || 'N/A'}\nStart: ${startStr}\nFinish: ${endStr}`;
     
     timeline.appendChild(bar);
     row.appendChild(timeline);

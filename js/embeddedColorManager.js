@@ -11,6 +11,8 @@ class EmbeddedColorManager {
   constructor() {
     this.currentScheme = null;
     this.colorMap = new Map();
+    this.currentFilter = null; // Store current precaster label filter
+    this.cameraChangeHandler = null; // Store reference to camera change handler
   }
 
   /**
@@ -177,6 +179,15 @@ class EmbeddedColorManager {
     
     // Create precaster labels
     this.createPrecasterLabels();
+    
+    // Re-apply filter if one was active
+    console.log(`🔍 Checking for stored filter: ${this.currentFilter ? this.currentFilter.length : 0} plots`);
+    if (this.currentFilter && this.currentFilter.length > 0) {
+      console.log(`🔄 Re-applying precaster filter after label creation (${this.currentFilter.length} plots)`);
+      this.filterPrecasterLabels(this.currentFilter);
+    } else {
+      console.log('ℹ️ No stored filter to re-apply');
+    }
   }
   
   /**
@@ -248,7 +259,7 @@ class EmbeddedColorManager {
       label.style.cssText = `
         position: absolute;
         color: white;
-        font-size: 8px;
+        font-size: 14px;
         font-weight: normal;
         transform: translate(-50%, -50%);
         white-space: nowrap;
@@ -263,11 +274,21 @@ class EmbeddedColorManager {
     
     console.log(`✅ Created ${labelCount} precaster labels`);
     
-    // Update label positions when camera moves
+    // Remove old camera change listener if exists
+    if (this.cameraChangeHandler) {
+      viewer.removeEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, this.cameraChangeHandler);
+      console.log('🗑️ Removed old camera change listener');
+    }
+    
+    // Create new handler and store reference
+    this.cameraChangeHandler = () => this.updatePrecasterLabelPositions();
+    
+    // Update label positions initially
     this.updatePrecasterLabelPositions();
-    viewer.addEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, () => {
-      this.updatePrecasterLabelPositions();
-    });
+    
+    // Add listener for camera changes
+    viewer.addEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, this.cameraChangeHandler);
+    console.log('➕ Added camera change listener for precaster labels');
   }
   
   /**
@@ -285,6 +306,12 @@ class EmbeddedColorManager {
     const fragList = model.getFragmentList();
     
     const labels = labelsContainer.querySelectorAll('.precaster-label');
+    
+    // Debug: Check filter state
+    const filterActive = this.currentFilter && this.currentFilter.length > 0;
+    let visibleCount = 0;
+    let hiddenCount = 0;
+    
     labels.forEach(label => {
       const dbId = parseInt(label.getAttribute('data-dbid'));
       
@@ -313,8 +340,33 @@ class EmbeddedColorManager {
       
       label.style.left = screenPos.x + 'px';
       label.style.top = screenPos.y + 'px';
-      label.style.display = 'block';
+      
+      // Respect the filter: only show if no filter is active OR plot is in the filter
+      if (this.currentFilter && this.currentFilter.length > 0) {
+        const plot = label.getAttribute('data-plot');
+        const plotTrimmed = String(plot).trim();
+        const plotSet = new Set(this.currentFilter.map(p => String(p).trim()));
+        
+        if (plotSet.has(plotTrimmed)) {
+          label.style.display = 'block';
+          visibleCount++;
+        } else {
+          label.style.display = 'none';
+          hiddenCount++;
+        }
+      } else {
+        // No filter active, show all labels
+        label.style.display = 'block';
+        visibleCount++;
+      }
     });
+    
+    // Log once every 100 updates to avoid spam
+    if (!this._updateCounter) this._updateCounter = 0;
+    this._updateCounter++;
+    if (this._updateCounter % 100 === 0) {
+      console.log(`📍 Position update #${this._updateCounter}: Filter=${filterActive ? this.currentFilter.length : 0}, Visible=${visibleCount}, Hidden=${hiddenCount}`);
+    }
   }
   
   /**
@@ -322,27 +374,81 @@ class EmbeddedColorManager {
    * @param {Array<string>} plotNumbers - Array of plot numbers to show labels for (or null for all)
    */
   filterPrecasterLabels(plotNumbers = null) {
+    // Store the current filter
+    this.currentFilter = plotNumbers;
+    
     const labelsContainer = document.getElementById('precasterLabels');
-    if (!labelsContainer) return;
+    if (!labelsContainer) {
+      console.log('⚠️ No precaster labels container found');
+      return;
+    }
     
     const labels = labelsContainer.querySelectorAll('.precaster-label');
+    console.log(`🔍 Found ${labels.length} total precaster labels`);
     
     if (!plotNumbers || plotNumbers.length === 0) {
-      // Show all labels
+      // Hide all labels when no plots specified
       labels.forEach(label => {
-        label.style.opacity = '1';
+        label.style.display = 'none';
       });
+      console.log('🏷️ Hiding all precaster labels (no filter active)');
     } else {
-      // Show only labels for specified plots
+      // Show only labels for specified plots, hide others
       const plotSet = new Set(plotNumbers.map(p => String(p).trim()));
+      console.log(`🏷️ Filter active for plots: ${Array.from(plotSet).slice(0, 5).join(', ')}... (${plotSet.size} total)`);
+      
+      let visibleCount = 0;
+      let hiddenCount = 0;
+      
+      // Debug: Track which labels should be hidden
+      const shouldBeHidden = [];
+      const shouldBeVisible = [];
+      
       labels.forEach(label => {
         const plot = label.getAttribute('data-plot');
-        if (plotSet.has(plot)) {
-          label.style.opacity = '1';
+        const plotTrimmed = String(plot).trim();
+        
+        if (plotSet.has(plotTrimmed)) {
+          label.style.display = 'block';
+          visibleCount++;
+          if (shouldBeVisible.length < 3) shouldBeVisible.push(plotTrimmed);
         } else {
-          label.style.opacity = '0';
+          label.style.display = 'none';
+          hiddenCount++;
+          if (shouldBeHidden.length < 10) shouldBeHidden.push(plotTrimmed);
         }
       });
+      
+      // Debug: Show which plots should be hidden
+      if (shouldBeHidden.length > 0) {
+        console.log(`   🚫 Hidden plots (not in filter): ${shouldBeHidden.join(', ')}`);
+      } else {
+        console.log(`   ⚠️ WARNING: No labels were hidden! All 303 labels match the filter?`);
+        console.log(`   Filter has ${plotSet.size} plots, labels has ${labels.length} labels`);
+        // Show first 3 label plots and first 3 filter plots
+        const firstLabelPlots = [];
+        labels.forEach((l, i) => {
+          if (i < 3) firstLabelPlots.push(l.getAttribute('data-plot'));
+        });
+        console.log(`   First 3 label plots: ${firstLabelPlots.join(', ')}`);
+        console.log(`   First 3 filter plots: ${Array.from(plotSet).slice(0, 3).join(', ')}`);
+      }
+      
+      console.log(`🏷️ Precaster labels filtered: ${visibleCount} visible, ${hiddenCount} hidden`);
+      
+      // Debug: Show first few hidden and visible plots
+      const visiblePlots = [];
+      const hiddenPlots = [];
+      labels.forEach(label => {
+        const plot = label.getAttribute('data-plot');
+        if (label.style.display === 'block' && visiblePlots.length < 5) {
+          visiblePlots.push(plot);
+        } else if (label.style.display === 'none' && hiddenPlots.length < 5) {
+          hiddenPlots.push(plot);
+        }
+      });
+      console.log(`   Visible plots: ${visiblePlots.join(', ')}`);
+      console.log(`   Hidden plots: ${hiddenPlots.join(', ')}`);
     }
   }
   
@@ -350,10 +456,20 @@ class EmbeddedColorManager {
    * Clear precaster labels
    */
   clearPrecasterLabels() {
+    // Remove camera change listener
+    if (this.cameraChangeHandler && viewerManager.viewer) {
+      viewerManager.viewer.removeEventListener(Autodesk.Viewing.CAMERA_CHANGE_EVENT, this.cameraChangeHandler);
+      this.cameraChangeHandler = null;
+      console.log('🗑️ Removed camera change listener');
+    }
+    
     const existingLabels = document.getElementById('precasterLabels');
     if (existingLabels) {
       existingLabels.remove();
     }
+    // Clear the stored filter
+    this.currentFilter = null;
+    console.log('🧹 Precaster labels and filter cleared');
   }
 
   /**
@@ -391,17 +507,83 @@ class EmbeddedColorManager {
         break;
 
       case 'Status':
-        const statuses = embeddedDataManager.groupByStatus();
-        statuses.forEach((dbIds, status) => {
-          if (dbIds.length > 0) {
+        // Status legend with actual colors used
+        const statusColors = {
+          'Raft Completed': { r: 0, g: 102, b: 255, a: 1.0 },
+          'Pre-Cast in Progress': { r: 102, g: 255, b: 255, a: 1.0 },
+          'Pre-Cast Completed': { r: 204, g: 204, b: 0, a: 1.0 },
+          'MEP & Finishes in Progress': { r: 255, g: 102, b: 204, a: 1.0 },
+          'MEP & Finishes Completed': { r: 102, g: 255, b: 51, a: 1.0 },
+          'Villa Handover': { r: 51, g: 153, b: 102, a: 1.0 }
+        };
+
+        // Count villas by status
+        const statusCounts = new Map();
+        for (const [dbId, elementInfo] of embeddedDataManager.elementData.entries()) {
+          if (!elementInfo.plot) continue;
+          const excelData = embeddedDataManager.getExcelDataForPlot(elementInfo.plot);
+          if (excelData && excelData.status) {
+            statusCounts.set(excelData.status, (statusCounts.get(excelData.status) || 0) + 1);
+          }
+        }
+
+        // Add to legend
+        for (const [status, color] of Object.entries(statusColors)) {
+          const count = statusCounts.get(status) || 0;
+          if (count > 0) {
             legend.push({
-              label: status.replace('_', ' '),
-              color: CONFIG.COLORS[status],
-              count: dbIds.length
+              label: status,
+              color: color,
+              count: count
             });
           }
-        });
+        }
         break;
+    }
+
+    return legend;
+  }
+
+  /**
+   * Get contractor legend (for block labels)
+   * @returns {Array} Contractor legend items
+   */
+  getContractorLegend() {
+    const legend = [
+      {
+        label: 'SPML',
+        color: { r: 0, g: 102, b: 255, a: 1.0 }, // Blue
+        symbol: 'circle'
+      },
+      {
+        label: 'ABR',
+        color: { r: 255, g: 215, b: 0, a: 1.0 }, // Golden
+        symbol: 'circle'
+      }
+    ];
+    return legend;
+  }
+
+  /**
+   * Get precaster legend
+   * @returns {Array} Precaster legend items
+   */
+  getPrecasterLegend() {
+    const precasters = new Set();
+
+    // Collect all unique precasters from Excel data
+    for (const [plot, data] of embeddedDataManager.excelData.entries()) {
+      if (data.precaster) {
+        precasters.add(data.precaster);
+      }
+    }
+
+    const legend = [];
+    for (const precaster of Array.from(precasters).sort()) {
+      legend.push({
+        label: precaster,
+        type: 'text' // Text labels, not color-coded
+      });
     }
 
     return legend;
