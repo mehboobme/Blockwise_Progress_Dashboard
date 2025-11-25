@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><title>Zoom Test</title></head>
+<body>
+<script>
+// Test what navigation methods exist
+console.log("Navigation API methods:");
+const nav = {
+  setDollySpeed: "exists" in Autodesk?.Viewing?.Navigation?.prototype ? "YES" : "NO",
+  getCamera: "method",
+  setVerticalFov: "method",
+  setView: "method"
+};
+console.log(nav);
+</script>
+</body>
+</html>

@@ -392,10 +392,39 @@
           if (CONFIG.UI.AUTO_COLOR_BY) {
             await this.applyColorScheme(CONFIG.UI.AUTO_COLOR_BY);
           }
+          
+          // Initialize proper zoom by applying a filter then clearing it
+          // This replicates: user applies filter -> clicks Clear All -> zoom works
+          setTimeout(() => {
+            this.initializeZoom();
+          }, 1000);
 
         } catch (error) {
           console.error('❌ Analysis error:', error);
           this.updateStatus('Failed to analyze model: ' + error.message, 'error');
+        }
+      }
+      
+      initializeZoom() {
+        console.log('🎯 Initializing zoom behavior...');
+        
+        // Get first available block to use as temporary filter
+        const blocks = embeddedDataManager.getAllBlocks();
+        if (blocks && blocks.length > 0) {
+          const firstBlock = blocks[0];
+          const dbIds = embeddedDataManager.getElementsByBlock(firstBlock);
+          
+          if (dbIds && dbIds.length > 0) {
+            // Apply filter (this calls isolate + fitToView)
+            viewerManager.isolate(dbIds);
+            viewerManager.fitToView(dbIds);
+            
+            // Then immediately clear to show all (this preserves the zoom initialization)
+            setTimeout(() => {
+              this.clearAll();
+              console.log('✅ Zoom initialized - model ready for proper zoom behavior');
+            }, 100);
+          }
         }
       }
 
@@ -616,25 +645,43 @@
         }
       }
 
-      showAll() {
+      async showAll() {
         viewerManager.showAll();
         viewerManager.clearSelection();
         
-        // Show all precaster labels (remove filter)
-        if (window.embeddedColorManager) {
-          window.embeddedColorManager.currentFilter = null;
-          // Get all plots and show their labels
-          const labelsContainer = document.getElementById('precasterLabels');
-          if (labelsContainer) {
-            const labels = labelsContainer.querySelectorAll('.precaster-label');
-            labels.forEach(label => {
-              label.style.display = 'block';
-            });
-            console.log(`🏷️ Showing all ${labels.length} precaster labels`);
-          }
+        // Get current color scheme BEFORE any changes
+        const colorScheme = document.getElementById('colorScheme');
+        const currentScheme = colorScheme ? colorScheme.value : 'Status';
+        
+        // If scheme is None or empty, default to Status for Show All
+        const schemeToApply = (currentScheme === 'None' || !currentScheme) ? 'Status' : currentScheme;
+        
+        console.log(`🎯 Show All: restoring ${schemeToApply} color scheme with block labels`);
+        
+        // Set the dropdown value
+        if (colorScheme) {
+          colorScheme.value = schemeToApply;
         }
         
-        this.updateStatus('Showing all elements', 'info');
+        // Reapply color scheme
+        await this.applyColorScheme(schemeToApply);
+        
+        // Create block labels for all visible blocks
+        if (window.embeddedDataManager) {
+          const allPlots = embeddedDataManager.getAllPlots();
+          const allDbIds = [];
+          
+          // Collect all DBIds
+          allPlots.forEach(plot => {
+            const dbIds = embeddedDataManager.getElementsByPlot(plot);
+            allDbIds.push(...dbIds);
+          });
+          
+          // Create block labels using the helper function
+          this.createBlockLabelsForElements(allDbIds, 'all');
+        }
+        
+        this.updateStatus('Showing all elements with status colors, block labels and infrastructure', 'success');
       }
 
       async showElementProperties(dbId) {
@@ -670,6 +717,10 @@
         if (!statsDiv) return;
 
         const overallStats = embeddedDataManager.getStats();
+        
+        // Calculate construction status breakdown
+        const statusCounts = this.getConstructionStatusCounts();
+        const totalVillas = statusCounts.total;
 
         statsDiv.innerHTML = `
           <div class="stats-card">
@@ -683,13 +734,298 @@
             <p>Plots: ${stats.plots}</p>
             <p>Components: ${stats.components}</p>
             <hr>
-            <p>Completed: ${overallStats.completed}</p>
-            <p>In Progress: ${overallStats.inProgress}</p>
-            <p>Delayed: ${overallStats.delayed}</p>
-            <p>Not Started: ${overallStats.notStarted}</p>
-            <p><strong>Completion Rate: ${overallStats.completionRate}%</strong></p>
+            <h4>🏗️ Construction Status</h4>
+            <div style="margin: 10px 0; text-align: center;">
+              <canvas id="statusPieChart" width="200" height="200"></canvas>
+            </div>
+            <div style="font-size: 11px; line-height: 1.8; padding: 5px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span><span style="color: #0066FF; font-size: 14px;">⬤</span> Raft:</span>
+                <span><strong>${statusCounts.raft}</strong> <span style="opacity: 0.7;">(${statusCounts.raftPct}%)</span></span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span><span style="color: #66FFFF; font-size: 14px;">⬤</span> Pre-Cast IP:</span>
+                <span><strong>${statusCounts.precastIP}</strong> <span style="opacity: 0.7;">(${statusCounts.precastIPPct}%)</span></span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span><span style="color: #CCCC00; font-size: 14px;">⬤</span> Pre-Cast Done:</span>
+                <span><strong>${statusCounts.precastDone}</strong> <span style="opacity: 0.7;">(${statusCounts.precastDonePct}%)</span></span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span><span style="color: #FF66CC; font-size: 14px;">⬤</span> MEP IP:</span>
+                <span><strong>${statusCounts.mepIP}</strong> <span style="opacity: 0.7;">(${statusCounts.mepIPPct}%)</span></span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span><span style="color: #66FF33; font-size: 14px;">⬤</span> MEP Done:</span>
+                <span><strong>${statusCounts.mepDone}</strong> <span style="opacity: 0.7;">(${statusCounts.mepDonePct}%)</span></span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                <span><span style="color: #339966; font-size: 14px;">⬤</span> Handover:</span>
+                <span><strong>${statusCounts.handover}</strong> <span style="opacity: 0.7;">(${statusCounts.handoverPct}%)</span></span>
+              </div>
+            </div>
+            <p style="margin-top: 10px;"><strong>Total Villas: ${totalVillas}</strong></p>
           </div>
         `;
+        
+        // Draw pie chart
+        this.drawStatusPieChart(statusCounts);
+      }
+      
+      getConstructionStatusCounts() {
+        const counts = {
+          raft: 0,
+          precastIP: 0,
+          precastDone: 0,
+          mepIP: 0,
+          mepDone: 0,
+          handover: 0,
+          total: 0
+        };
+        
+        if (!window.embeddedDataManager) return counts;
+        
+        const allPlots = embeddedDataManager.getAllPlots();
+        allPlots.forEach(plot => {
+          // Get status from Excel data if available
+          const excelData = embeddedDataManager.excelData.get(plot);
+          if (excelData && excelData.status) {
+            counts.total++;
+            const status = excelData.status.toLowerCase();
+            
+            if (status.includes('raft')) counts.raft++;
+            else if (status.includes('pre') && status.includes('progress')) counts.precastIP++;
+            else if (status.includes('pre') && status.includes('complet')) counts.precastDone++;
+            else if (status.includes('mep') && status.includes('progress')) counts.mepIP++;
+            else if (status.includes('mep') && status.includes('complet')) counts.mepDone++;
+            else if (status.includes('handover')) counts.handover++;
+          }
+        });
+        
+        // Calculate percentages
+        counts.raftPct = counts.total > 0 ? Math.round((counts.raft / counts.total) * 100) : 0;
+        counts.precastIPPct = counts.total > 0 ? Math.round((counts.precastIP / counts.total) * 100) : 0;
+        counts.precastDonePct = counts.total > 0 ? Math.round((counts.precastDone / counts.total) * 100) : 0;
+        counts.mepIPPct = counts.total > 0 ? Math.round((counts.mepIP / counts.total) * 100) : 0;
+        counts.mepDonePct = counts.total > 0 ? Math.round((counts.mepDone / counts.total) * 100) : 0;
+        counts.handoverPct = counts.total > 0 ? Math.round((counts.handover / counts.total) * 100) : 0;
+        
+        return counts;
+      }
+      
+      drawStatusPieChart(counts) {
+        const canvas = document.getElementById('statusPieChart');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const centerX = 100;
+        const centerY = 100;
+        const radius = 80;
+        
+        const data = [
+          { value: counts.raft, color: '#0066FF', pct: counts.raftPct, label: 'Raft Completed', status: 'raft' },
+          { value: counts.precastIP, color: '#66FFFF', pct: counts.precastIPPct, label: 'Pre-Cast IP', status: 'pre.*progress' },
+          { value: counts.precastDone, color: '#CCCC00', pct: counts.precastDonePct, label: 'Pre-Cast Done', status: 'pre.*complet' },
+          { value: counts.mepIP, color: '#FF66CC', pct: counts.mepIPPct, label: 'MEP IP', status: 'mep.*progress' },
+          { value: counts.mepDone, color: '#66FF33', pct: counts.mepDonePct, label: 'MEP Done', status: 'mep.*complet' },
+          { value: counts.handover, color: '#339966', pct: counts.handoverPct, label: 'Handover', status: 'handover' }
+        ];
+        
+        const total = counts.total;
+        if (total === 0) return;
+        
+        let currentAngle = -Math.PI / 2; // Start at top
+        const sliceData = []; // Store slice data for click detection
+        
+        data.forEach(item => {
+          if (item.value === 0) return;
+          
+          const sliceAngle = (item.value / total) * 2 * Math.PI;
+          
+          // Draw slice
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.arc(centerX, centerY, radius, currentAngle, currentAngle + sliceAngle);
+          ctx.closePath();
+          ctx.fillStyle = item.color;
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          
+          // Draw percentage text inside slice
+          if (item.pct >= 5) { // Only show text if slice is big enough
+            const textAngle = currentAngle + sliceAngle / 2;
+            const textX = centerX + (radius * 0.6) * Math.cos(textAngle);
+            const textY = centerY + (radius * 0.6) * Math.sin(textAngle);
+            
+            ctx.fillStyle = '#000';
+            ctx.font = 'bold 12px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`${item.pct}%`, textX, textY);
+          }
+          
+          // Store slice data for click detection
+          sliceData.push({
+            startAngle: currentAngle,
+            endAngle: currentAngle + sliceAngle,
+            label: item.label,
+            status: item.status,
+            color: item.color
+          });
+          
+          currentAngle += sliceAngle;
+        });
+        
+        // Add click event listener to canvas
+        canvas.onclick = (event) => {
+          const rect = canvas.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          
+          // Convert to canvas coordinates
+          const canvasX = x * (canvas.width / rect.width);
+          const canvasY = y * (canvas.height / rect.height);
+          
+          // Calculate angle and distance from center
+          const dx = canvasX - centerX;
+          const dy = canvasY - centerY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance <= radius) {
+            let angle = Math.atan2(dy, dx);
+            // Adjust angle to match pie chart rotation (start at top)
+            angle = angle + Math.PI / 2;
+            if (angle < 0) angle += 2 * Math.PI;
+            
+            // Find which slice was clicked
+            for (const slice of sliceData) {
+              let startAngle = slice.startAngle;
+              let endAngle = slice.endAngle;
+              
+              // Normalize angles
+              if (startAngle < 0) startAngle += 2 * Math.PI;
+              if (endAngle < 0) endAngle += 2 * Math.PI;
+              
+              if (angle >= startAngle && angle <= endAngle) {
+                console.log(`👆 Clicked on ${slice.label}`);
+                // Call immediately for fast response
+                this.filterByConstructionStatus(slice.status, slice.label);
+                break;
+              }
+            }
+          }
+        };
+        
+        // Add hover cursor
+        canvas.style.cursor = 'pointer';
+      }
+      
+      async filterByConstructionStatus(statusPattern, label) {
+        console.log(`🔍 Filtering villas by construction status: ${label}`);
+        
+        const filteredDbIds = [];
+        const filteredPlots = [];
+        const allPlots = embeddedDataManager.getAllPlots();
+        
+        allPlots.forEach(plot => {
+          const excelData = embeddedDataManager.excelData.get(plot);
+          if (excelData && excelData.status) {
+            const status = excelData.status.toLowerCase();
+            const regex = new RegExp(statusPattern, 'i');
+            
+            if (regex.test(status)) {
+              const dbIds = embeddedDataManager.getElementsByPlot(plot);
+              filteredDbIds.push(...dbIds);
+              filteredPlots.push(plot);
+            }
+          }
+        });
+        
+        if (filteredDbIds.length > 0) {
+          // Isolate and fit view
+          viewerManager.isolate(filteredDbIds);
+          viewerManager.fitToView(filteredDbIds);
+          
+          // Reapply colors for filtered villas
+          const colorScheme = document.getElementById('colorScheme')?.value || 'Status';
+          await this.applyColorScheme(colorScheme);
+          
+          // Count filtered blocks
+          const filteredBlocks = new Set();
+          filteredPlots.forEach(plot => {
+            const excelData = embeddedDataManager.excelData.get(plot);
+            if (excelData && excelData.block) {
+              filteredBlocks.add(String(excelData.block).trim());
+            }
+          });
+          
+          // Create block labels for filtered elements
+          this.createBlockLabelsForElements(filteredDbIds, label);
+          
+          this.updateStatus(`Filtered ${filteredDbIds.length} elements in ${filteredBlocks.size} blocks for ${label}`, 'success');
+        } else {
+          this.updateStatus(`No elements found for ${label}`, 'warning');
+        }
+      }
+      
+      createBlockLabelsForElements(dbIds, context) {
+        if (!window.embeddedDataManager || dbIds.length === 0) return;
+        
+        // Build block data structure from dbIds
+        const blockMap = new Map();
+        
+        dbIds.forEach(dbId => {
+          const element = embeddedDataManager.getElementData(dbId);
+          if (element && element.block) {
+            const block = String(element.block).trim();
+            
+            if (!blockMap.has(block)) {
+              // Get contractor from schedule data (NOT from element.precaster)
+              let contractor = null;
+              if (window.dataParser && window.dataParser.scheduleByBlock) {
+                const scheduleData = window.dataParser.scheduleByBlock.get(block);
+                if (scheduleData && scheduleData.villas && scheduleData.villas.length > 0) {
+                  contractor = scheduleData.villas[0].Contractor;
+                }
+              }
+              
+              blockMap.set(block, {
+                dbIds: [],
+                types: new Set(),
+                contractor: contractor  // Use contractor from schedule
+              });
+            }
+            
+            const blockData = blockMap.get(block);
+            blockData.dbIds.push(dbId);
+            if (element.villaType) {
+              blockData.types.add(element.villaType);
+            }
+          }
+        });
+        
+        if (blockMap.size > 0) {
+          console.log(`🏷️ Creating labels for ${blockMap.size} blocks (${context})`);
+          
+          // Import and use the visual-block-identifier functions
+          if (window.createBlockLabelsFromVisibleGeometry) {
+            const colors = [
+              '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
+              '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B88B', '#AED6F1',
+              '#FF8C00', '#20B2AA', '#FFD700', '#FF1493', '#00CED1'
+            ];
+            
+            // Clear old labels first
+            if (window.clearBlockLabels) {
+              window.clearBlockLabels();
+            }
+            
+            // Create labels
+            window.createBlockLabelsFromVisibleGeometry(blockMap, colors);
+          }
+        }
       }
 
       populateFilters() {
@@ -903,12 +1239,19 @@
           console.log('🧹 Cleared precaster filter');
         }
         
-        this.showAll();
+        // Show all without reapplying colors (Include Infra behavior)
+        viewerManager.showAll();
+        viewerManager.clearSelection();
+        
+        this.updateStatus('Filters cleared - showing all elements', 'success');
       }
       
       clearAll() {
-        // Clear filters first
-        this.clearFilters();
+        // Reset filter dropdowns
+        document.getElementById('filterPhase').value = '';
+        document.getElementById('filterNeighborhood').value = '';
+        document.getElementById('filterBlock').value = '';
+        document.getElementById('filterPlot').value = '';
 
         // Clear block labels
         if (window.clearBlockLabels) {
@@ -918,12 +1261,17 @@
         // Clear precaster labels
         if (window.embeddedColorManager) {
           window.embeddedColorManager.clearPrecasterLabels();
+          window.embeddedColorManager.currentFilter = null;
         }
 
         // Clear colors
         if (window.viewerManager) {
           window.viewerManager.clearColors();
         }
+        
+        // Show all elements
+        viewerManager.showAll();
+        viewerManager.clearSelection();
 
         // Reset color scheme dropdown
         const colorScheme = document.getElementById('colorScheme');
@@ -938,6 +1286,7 @@
         }
 
         console.log('🧹✨ All labels, filters, and colors cleared');
+        this.updateStatus('Everything cleared', 'success');
       }
 
       resetEverything() {
@@ -963,6 +1312,11 @@
             colorScheme.value = 'Block';
             this.applyColorScheme('Block');
           }
+          
+          // Reinitialize zoom behavior after reset (same as initial load)
+          setTimeout(() => {
+            this.initializeZoom();
+          }, 500);
         }, 100);
 
         this.updateStatus('Reset complete - All views restored to default', 'success');
