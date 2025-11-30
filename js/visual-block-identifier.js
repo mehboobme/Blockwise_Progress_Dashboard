@@ -818,6 +818,7 @@ export async function showInteractiveBlockList(selectedNeighborhood, filteredDbI
       blockMap.set(block, {
         block: block,
         dbIds: [],
+        plots: new Set(),  // Track unique plot numbers
         types: new Set(),
         contractor: contractor  // Add contractor info
       });
@@ -825,6 +826,10 @@ export async function showInteractiveBlockList(selectedNeighborhood, filteredDbI
 
     const blockData = blockMap.get(block);
     blockData.dbIds.push(dbId);
+    // Track unique plot numbers for accurate villa count
+    if (element.plot) {
+      blockData.plots.add(String(element.plot).trim());
+    }
     blockData.types.add(element.villaType || 'Unknown');
   }
 
@@ -879,6 +884,7 @@ export async function showInteractiveBlockList(selectedNeighborhood, filteredDbI
     const blockData = blockMap.get(block);
     const color = colors[i % colors.length];
     const villaTypes = Array.from(blockData.types).join(', ');
+    const villaCount = blockData.plots ? blockData.plots.size : blockData.dbIds.length;
 
     html += `
       <div class="block-item" data-block="${block}" data-dbids="${blockData.dbIds.join(',')}" 
@@ -890,7 +896,7 @@ export async function showInteractiveBlockList(selectedNeighborhood, filteredDbI
           <div style="font-weight: 600; color: ${color}; font-size: 13px;">Block ${block}</div>
           <span class="block-checkbox" style="width: 16px; height: 16px; border: 2px solid #009A84; border-radius: 3px; display: inline-block; background: white;"></span>
         </div>
-        <div style="color: #666; font-size: 11px;">${blockData.dbIds.length} villas • ${villaTypes}</div>
+        <div style="color: #666; font-size: 11px;">${villaCount} villas • ${villaTypes}</div>
       </div>
     `;
     i++;
@@ -920,10 +926,16 @@ export function hideBlockLabels() {
   if (panel) {
     panel.remove(); // Remove instead of hide, so it can be recreated
   }
+  
+  // Also remove schedule panel
+  const schedulePanel = document.getElementById('permanentSchedulePanel');
+  if (schedulePanel) {
+    schedulePanel.remove();
+  }
 
   clearBlockLabels();
   window._selectedBlocks?.clear();
-  console.log('✅ Block labels hidden');
+  console.log('✅ Block labels and panels hidden');
 }
 
 /**

@@ -212,10 +212,10 @@ class EmbeddedDataManager {
   }
   
   /**
-   * Get all DbIds from villa node 3 in the federated model
-   * Node 3 = "Al Arous Project - Familly Villas.nwc"
-   * This ensures we capture all villa elements including non-leaf nodes with properties
-   * @returns {Promise<Array<number>>} Array of all DbIds under villa node 3
+   * Get all DbIds from villa representation nodes in the model
+   * For NWC/NWD models, villas are under "Generic Models" as *_REPRESENTATION families
+   * e.g., C10 REPRESENTATION, DP2 REPRESENTATION, VL1 REPRESENTATION, etc.
+   * @returns {Promise<Array<number>>} Array of all villa DbIds
    */
   async getVillaDbIdsFromNode3() {
     return new Promise((resolve) => {
@@ -234,21 +234,83 @@ class EmbeddedDataManager {
           return;
         }
 
-        const VILLA_NODE_ID = 3; // "Al Arous Project - Familly Villas.nwc"
         const villaDbIds = [];
-
-        // Recursively get all DbIds under villa node (including non-leaf nodes)
+        
+        // Villa type names to look for (REPRESENTATION families)
+        const villaTypePatterns = [
+          'C10 REPRESENTATION', 'DP2 REPRESENTATION', 'TH1 REPRESENTATION',
+          'VL4 REPRESENTATION', 'DP4 REPRESENTATION', 'VL1 REPRESENTATION',
+          'TH3 REPRESENTATION', 'VL2 REPRESENTATION', 'VL5 REPRESENTATION',
+          'REPRESENTATION' // Generic fallback
+        ];
+        
+        // Find Generic Models node (usually dbId 4) or search by name
+        let genericModelsId = null;
+        const rootId = tree.getRootId();
+        
+        // Search for "Generic Models" node in the tree
+        const findGenericModels = (dbId) => {
+          const name = tree.getNodeName(dbId) || '';
+          if (name === 'Generic Models') {
+            genericModelsId = dbId;
+            return true;
+          }
+          let found = false;
+          tree.enumNodeChildren(dbId, (childId) => {
+            if (!found) found = findGenericModels(childId);
+          }, false);
+          return found;
+        };
+        
+        findGenericModels(rootId);
+        
+        if (!genericModelsId) {
+          console.warn('⚠️ Generic Models node not found, scanning entire tree');
+          // Fallback: scan all nodes for REPRESENTATION pattern
+          const scanAll = (dbId) => {
+            const name = tree.getNodeName(dbId) || '';
+            if (name.includes('REPRESENTATION')) {
+              villaDbIds.push(dbId);
+            }
+            tree.enumNodeChildren(dbId, (childId) => {
+              scanAll(childId);
+            }, false);
+          };
+          scanAll(rootId);
+          console.log(`✅ Found ${villaDbIds.length} REPRESENTATION elements via full scan`);
+          resolve(villaDbIds);
+          return;
+        }
+        
+        console.log(`📁 Found Generic Models at dbId ${genericModelsId}`);
+        
+        // Get all villa type nodes under Generic Models
+        const villaTypeNodes = [];
+        tree.enumNodeChildren(genericModelsId, (childId) => {
+          const name = tree.getNodeName(childId) || '';
+          if (villaTypePatterns.some(p => name.includes(p) || name.includes('REPRESENTATION'))) {
+            villaTypeNodes.push({ dbId: childId, name });
+          }
+        }, false);
+        
+        console.log(`🏘️ Found ${villaTypeNodes.length} villa type nodes:`, villaTypeNodes.map(n => n.name));
+        
+        // Recursively get all DbIds under each villa type node
         const traverse = (dbId) => {
           villaDbIds.push(dbId);
           tree.enumNodeChildren(dbId, (childId) => {
             traverse(childId);
-          });
+          }, false);
         };
-
-        traverse(VILLA_NODE_ID);
+        
+        villaTypeNodes.forEach(node => {
+          traverse(node.dbId);
+        });
+        
+        console.log(`✅ Found ${villaDbIds.length} total villa elements`);
         resolve(villaDbIds);
       } catch (error) {
-        console.error('❌ Error getting villa DbIds from node 3:', error);
+        console.error('❌ Error getting villa DbIds:', error);
         resolve([]);
       }
     });
@@ -262,53 +324,61 @@ class EmbeddedDataManager {
   extractElementInfo(properties) {
     const info = {};
     let hasVillaProperties = false;
-    let debugLog = false; // Set to true for first element only
 
     properties.forEach(prop => {
       const name = prop.displayName;
+      const category = prop.displayCategory || '';
       const nameLower = name.toLowerCase();
       const value = prop.displayValue;
 
       // Skip empty/null values
       if (!value || value === '' || value === 'N/A') return;
 
-      // DEBUG: Log all property names for debugging (first element only)
-      if (debugLog && name.includes('Element/')) {
-        console.log(`🔍 Found property: "${name}" = "${value}"`);
-      }
+      // ========== PRIMARY REVIT PROPERTIES (Element category) ==========
+      // In NWC models, properties are: displayCategory="Element", displayName="Block|Plot|NBH|Villa_Type"
 
-      // ========== PRIMARY REVIT PROPERTIES (from federated Navisworks model) ==========
-
-      // Extract Block (Element/Block or just Block) - e.g., "39" (keep as plain number for villa blocks)
-      if (name === 'Element/Block' || name === 'Block') {
+      // Extract Block - e.g., "156", "155" (villa block numbers)
+      if ((category === 'Element' && name === 'Block') || name === 'Element/Block') {
         // Villa blocks are plain numbers, NOT formatted with R prefix
-        // R prefix is only for infrastructure blocks (which will now be filtered out)
         info.block = String(value);
-        hasVillaProperties = true;  // Mark as villa element
+        hasVillaProperties = true;
       }
 
-      // Extract Neighborhood (Element/NBH or just NBH) - e.g., "SE03" (keep as-is)
-      if (name === 'Element/NBH' || name === 'NBH') {
+      // Extract Neighborhood (NBH) - e.g., "SW02", "SE03"
+      if ((category === 'Element' && name === 'NBH') || name === 'Element/NBH') {
         info.neighborhood = String(value);
         info.sector = String(value);
-        hasVillaProperties = true;  // Mark as villa element
+        hasVillaProperties = true;
       }
 
-      // Extract Plot (Element/Plot or just Plot) - e.g., "425"
-      if (name === 'Element/Plot' || name === 'Plot') {
-        // Plot must be numeric (or numeric string)
+      // Extract Plot - e.g., "1919", "1918", "2039"
+      if ((category === 'Element' && name === 'Plot') || name === 'Element/Plot') {
         const plotValue = String(value).trim();
         if (plotValue && !isNaN(plotValue)) {
           info.plot = plotValue;
-          hasVillaProperties = true;  // Mark as villa element
+          hasVillaProperties = true;
+        }
+      }
+      
+      // Also check Villa_Plot No. as alternative plot field
+      if ((category === 'Element' && name === 'Villa_Plot No.') || name === 'Element/Villa_Plot No.') {
+        const plotValue = String(value).trim();
+        if (!info.plot && plotValue && !isNaN(plotValue)) {
+          info.plot = plotValue;
+          hasVillaProperties = true;
         }
       }
 
-      // Extract Villa Type (Element/Villa_Type or just Villa_Type) - e.g., "DP2"
-      if (name === 'Element/Villa_Type' || name === 'Villa_Type') {
+      // Extract Villa Type - e.g., "C10", "DP2", "VL1"
+      if ((category === 'Element' && name === 'Villa_Type') || name === 'Element/Villa_Type') {
         info.villaType = value;
         info.component = value; // Use villa type as primary component
-        hasVillaProperties = true;  // Mark as villa element
+        hasVillaProperties = true;
+      }
+      
+      // Extract Zone - e.g., "C"
+      if ((category === 'Element' && name === 'Zone') || name === 'Element/Zone') {
+        info.zone = value;
       }
 
       // Extract Level (Level/Name) - e.g., "GR.F"

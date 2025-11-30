@@ -28,7 +28,7 @@
         <button id="logoutBtn" class="btn btn-secondary" style="display: none;">Logout</button>
       </div>
       <button id="loadModelBtn" class="btn btn-primary" disabled>Load Model</button>
-      <button id="analyzeBtn" class="btn btn-warning" disabled>Analyze Model</button>
+      <!-- Analyze Model button removed - auto-triggered by Load Model -->
       <button id="ganttToggle" class="btn btn-primary" title="Toggle Gantt Chart">📊 Gantt Chart</button>
     </div>
   </header>
@@ -263,6 +263,13 @@
         // Gantt chart toggle - wait for module to load
         document.getElementById('ganttToggle')?.addEventListener('click', async () => {
           console.log('📊 Gantt toggle clicked');
+          
+          // Close Block List and Schedule panels when opening Gantt
+          const blockPanel = document.getElementById('blockInfoPanel');
+          if (blockPanel) blockPanel.remove();
+          
+          const schedulePanel = document.getElementById('permanentSchedulePanel');
+          if (schedulePanel) schedulePanel.remove();
 
           // Wait for ganttChart to be available
           let attempts = 0;
@@ -318,11 +325,54 @@
             console.log('⏳ Large model loading in progress...');
           }, 5000);
 
-          // Load model
-          const identifier = CONFIG.MODEL_URN;
+          // Determine model identifier - auto-fetch latest or use fallback
+          let identifier = CONFIG.MODEL_URN;
+          let versionInfo = null;
+          
+          if (CONFIG.AUTO_FETCH_LATEST_VERSION) {
+            console.log('🔄 Auto-fetching latest model version from ACC...');
+            console.log('   Server URL:', CONFIG.SERVER_URL);
+            this.updateStatus('Fetching latest model version from ACC...', 'info');
+            
+            try {
+              const sessionId = localStorage.getItem('aps_session_id');
+              console.log('   Session ID:', sessionId ? sessionId.substring(0, 20) + '...' : 'NONE');
+              
+              const response = await fetch(`${CONFIG.SERVER_URL}/api/acc/latest-model?sessionId=${sessionId}`);
+              console.log('   Response status:', response.status);
+              
+              const data = await response.json();
+              console.log('   Response data:', data);
+              
+              if (data.success) {
+                identifier = data.base64Urn;
+                versionInfo = {
+                  version: data.versionNumber,
+                  fileName: data.fileName
+                };
+                console.log(`✅ Auto-fetched latest version: ${data.fileName} v${data.versionNumber}`);
+                console.log('   URN:', identifier.substring(0, 50) + '...');
+                this.updateStatus(`Loading ${data.fileName} (v${data.versionNumber})...`, 'info');
+              } else {
+                console.warn('⚠️ Could not fetch latest version, using fallback URN');
+                console.warn('   Reason:', data.message || data.error);
+                console.warn('   Full response:', JSON.stringify(data));
+                
+                // If auth error, prompt user to re-login
+                if (response.status === 401) {
+                  this.updateStatus('Session expired - Please click Login button again, then Load Model', 'warning');
+                  alert('Your session has expired (server may have restarted).\n\nPlease:\n1. Click the "Login" button\n2. Complete Autodesk login\n3. Then click "Load Model" again');
+                }
+              }
+            } catch (fetchError) {
+              console.error('❌ Auto-fetch failed:', fetchError);
+              console.warn('⚠️ Using fallback URN');
+            }
+          }
+          
           if (!identifier) {
             clearInterval(progressInterval);
-            throw new Error('No MODEL_URN in config.js');
+            throw new Error('No MODEL_URN in config.js and auto-fetch failed');
           }
 
           console.log('Loading large model (311k elements)...');
@@ -331,6 +381,12 @@
           clearInterval(progressInterval);
 
           this.modelLoaded = true;
+          
+          // Store version info for display
+          if (versionInfo) {
+            window._currentModelVersion = versionInfo;
+          }
+          
           console.log('✅ Model load complete, instance tree:', viewerManager.instanceTree);
           this.updateStatus('Model loaded - Analyzing...', 'info');
 
@@ -649,6 +705,19 @@
         viewerManager.showAll();
         viewerManager.clearSelection();
         
+        // Close Block List and Schedule panels (but NOT the label container)
+        const blockPanel = document.getElementById('blockInfoPanel');
+        if (blockPanel) {
+          blockPanel.remove();
+          console.log('🗑️ Removed Block List panel');
+        }
+        
+        const schedulePanel = document.getElementById('permanentSchedulePanel');
+        if (schedulePanel) {
+          schedulePanel.remove();
+          console.log('🗑️ Removed Schedule panel');
+        }
+        
         // Get current color scheme BEFORE any changes
         const colorScheme = document.getElementById('colorScheme');
         const currentScheme = colorScheme ? colorScheme.value : 'Status';
@@ -666,6 +735,9 @@
         // Reapply color scheme
         await this.applyColorScheme(schemeToApply);
         
+        // Wait a bit for color scheme to apply before creating labels
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         // Create block labels for all visible blocks
         if (window.embeddedDataManager) {
           const allPlots = embeddedDataManager.getAllPlots();
@@ -677,8 +749,10 @@
             allDbIds.push(...dbIds);
           });
           
+          console.log(`📋 Creating block labels for ${allDbIds.length} elements`);
+          
           // Create block labels using the helper function
-          this.createBlockLabelsForElements(allDbIds, 'all');
+          this.createBlockLabelsForElements(allDbIds, 'Show All');
         }
         
         this.updateStatus('Showing all elements with status colors, block labels and infrastructure', 'success');
@@ -721,10 +795,17 @@
         // Calculate construction status breakdown
         const statusCounts = this.getConstructionStatusCounts();
         const totalVillas = statusCounts.total;
+        
+        // Get model version info if available
+        const versionInfo = window._currentModelVersion;
+        const versionDisplay = versionInfo 
+          ? `<p style="font-size: 10px; color: #666; margin-top: 5px;">📄 ${versionInfo.fileName} (v${versionInfo.version})</p>`
+          : '';
 
         statsDiv.innerHTML = `
           <div class="stats-card">
             <h4>📊 Model Statistics</h4>
+            ${versionDisplay}
             <p>Total Elements: ${stats.totalElements}</p>
             <p>Analyzed: ${stats.analyzed} (${stats.analysisRate}%)</p>
             <hr>
@@ -1233,6 +1314,13 @@
         document.getElementById('filterBlock').value = '';
         document.getElementById('filterPlot').value = '';
         
+        // Close Block List and Schedule panels
+        const blockPanel = document.getElementById('blockInfoPanel');
+        if (blockPanel) blockPanel.remove();
+        
+        const schedulePanel = document.getElementById('permanentSchedulePanel');
+        if (schedulePanel) schedulePanel.remove();
+        
         // Clear precaster label filter
         if (window.embeddedColorManager) {
           window.embeddedColorManager.currentFilter = null;
@@ -1252,6 +1340,13 @@
         document.getElementById('filterNeighborhood').value = '';
         document.getElementById('filterBlock').value = '';
         document.getElementById('filterPlot').value = '';
+        
+        // Close Block List and Schedule panels
+        const blockPanel = document.getElementById('blockInfoPanel');
+        if (blockPanel) blockPanel.remove();
+        
+        const schedulePanel = document.getElementById('permanentSchedulePanel');
+        if (schedulePanel) schedulePanel.remove();
 
         // Clear block labels
         if (window.clearBlockLabels) {

@@ -15,21 +15,24 @@ export const CONFIG = {
   },
 
   // Model identifiers from ACC
-  // Your ACC URL: https://acc.autodesk.com/docs/files/projects/c6b26e99-6540-4b9c-94b4-b60d6ae59dde/...
+  // Your ACC URL: https://acc.autodesk.com/docs/files/projects/d99b2475-9a5c-4752-abb1-b6b8c3e8c2a3/...
   
-  ACC_PROJECT_ID: 'c6b26e99-6540-4b9c-94b4-b60d6ae59dde',
+  // NEW PROJECT - Fixed identifiers (file/folder remain same, only version updates)
+  ACC_PROJECT_ID: 'd99b2475-9a5c-4752-abb1-b6b8c3e8c2a3',
+  
+  // Lineage URN - this stays constant across all versions of the same file
+  LINEAGE_URN: 'urn:adsk.wipprod:dm.lineage:_mxP3Z5BRUqUT0T7xKPyxg',
+  
+  // Viewable GUID - for selecting the correct view in federated model
+  VIEWABLE_GUID: 'ad763e05-577f-ccd1-4c87-ce502f12e069',
 
-  // Option 1: Use ViewableGuid from URL (RECOMMENDED for ACC models)
-  // Old model GUID: VIEWABLE_GUID: '50335397-5638-5588-0164-bc491557e578',
+  // AUTO-VERSION: Set to true to automatically fetch latest version on load
+  // When true, MODEL_URN below is ignored and fetched dynamically from ACC
+  AUTO_FETCH_LATEST_VERSION: true,
 
-  // Option 2: Or use Item URN (requires translation)
-  // ITEM_URN: 'urn:adsk.wipprod:dm.lineage:kcWBW2eZQQWEWUBqKQNTow',
-
-  // NEW FEDERATED MODEL (with manage permissions)
+  // FALLBACK MODEL_URN - used only if AUTO_FETCH_LATEST_VERSION is false
+  // or if auto-fetch fails
   MODEL_URN: 'dXJuOmFkc2sud2lwcHJvZDpmcy5maWxlOnZmLjN1cjVnSDVmVFZhVWN6OGR2bjV3TlE_dmVyc2lvbj0x',
-
-  // OLD WORKING MODEL (for fallback)
-  // MODEL_URN: 'dXJuOmFkc2sud2lwcHJvZDpmcy5maWxlOnZmLmtjV0JXMmVaUVFXRVdVQnFLUU5Ub3c_dmVyc2lvbj0x',
 
   // Color scheme for different blocks/statuses
   COLORS: {

@@ -450,6 +450,183 @@ app.post('/api/acc/get-derivative-urn', async (req, res) => {
   }
 });
 
+/**
+ * AUTO-VERSION DETECTION: Get latest version derivative URN from ACC lineage
+ * This automatically gets the latest version without hardcoding URN
+ */
+app.get('/api/acc/latest-model', async (req, res) => {
+  try {
+    // Fixed identifiers from your ACC URL - these don't change
+    const PROJECT_ID = 'd99b2475-9a5c-4752-abb1-b6b8c3e8c2a3';
+    const LINEAGE_URN = 'urn:adsk.wipprod:dm.lineage:_mxP3Z5BRUqUT0T7xKPyxg';
+    const VIEWABLE_GUID = 'ad763e05-577f-ccd1-4c87-ce502f12e069';
+    
+    // Get user token from session
+    const sessionId = req.query.sessionId || req.headers['x-session-id'];
+    let token = req.headers.authorization?.split(' ')[1];
+    
+    // If no token in header, try to get from session
+    if (!token && sessionId) {
+      const tokenData = userTokens.get(sessionId);
+      if (tokenData && Date.now() < tokenData.expires_at) {
+        token = tokenData.access_token;
+      } else if (tokenData) {
+        console.log('⏰ Session token expired for:', sessionId);
+      } else {
+        console.log('❌ Session not found (server may have restarted):', sessionId);
+        console.log('   Available sessions:', Array.from(userTokens.keys()));
+      }
+    }
+    
+    if (!token) {
+      return res.status(401).json({ 
+        error: 'Authentication required',
+        hint: 'Please click Login button again (session expired or server restarted)',
+        sessionId: sessionId || 'none',
+        availableSessions: userTokens.size
+      });
+    }
+
+    console.log('🔄 Fetching latest model version from ACC...');
+    console.log('   Project ID:', PROJECT_ID);
+    console.log('   Lineage URN:', LINEAGE_URN);
+
+    // Step 1: Get item details using lineage URN to find the tip (latest) version
+    const itemUrl = `https://developer.api.autodesk.com/data/v1/projects/b.${PROJECT_ID}/items/${encodeURIComponent(LINEAGE_URN)}`;
+    console.log('   Item URL:', itemUrl);
+    
+    let itemResponse;
+    try {
+      itemResponse = await axios.get(itemUrl, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      console.log('   Item response received');
+    } catch (itemError) {
+      console.error('❌ Failed to get item:', itemError.response?.data || itemError.message);
+      return res.status(500).json({
+        error: 'Failed to get item from ACC',
+        details: itemError.response?.data || itemError.message
+      });
+    }
+
+    // Debug: Log the response structure
+    console.log('   Item data keys:', Object.keys(itemResponse.data?.data || {}));
+    console.log('   Relationships:', Object.keys(itemResponse.data?.data?.relationships || {}));
+    
+    // Check if tip relationship exists
+    if (!itemResponse.data?.data?.relationships?.tip?.data?.id) {
+      console.error('❌ Tip version not found in response');
+      console.log('   Full relationships:', JSON.stringify(itemResponse.data?.data?.relationships, null, 2));
+      return res.status(500).json({
+        error: 'Tip version not found',
+        details: 'The item does not have a tip version relationship',
+        relationships: Object.keys(itemResponse.data?.data?.relationships || {})
+      });
+    }
+
+    const tipVersionId = itemResponse.data.data.relationships.tip.data.id;
+    console.log('✅ Found tip (latest) version:', tipVersionId);
+
+    // Step 2: Get version details to find derivatives
+    const versionUrl = `https://developer.api.autodesk.com/data/v1/projects/b.${PROJECT_ID}/versions/${encodeURIComponent(tipVersionId)}`;
+    
+    let versionResponse;
+    try {
+      versionResponse = await axios.get(versionUrl, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (versionError) {
+      console.error('❌ Failed to get version:', versionError.response?.data || versionError.message);
+      return res.status(500).json({
+        error: 'Failed to get version details',
+        details: versionError.response?.data || versionError.message
+      });
+    }
+
+    // Extract version number from response
+    const versionNumber = versionResponse.data.data.attributes?.versionNumber || 'unknown';
+    const fileName = versionResponse.data.data.attributes?.displayName || 'unknown';
+    console.log('📄 File:', fileName, '| Version:', versionNumber);
+
+    // Debug: Log version relationships
+    console.log('   Version relationships:', Object.keys(versionResponse.data.data.relationships || {}));
+    
+    // Step 3: Extract derivative URN - check multiple possible locations
+    let derivativeUrn = null;
+    
+    // Option 1: Check derivatives relationship (array format)
+    const derivatives = versionResponse.data.data.relationships?.derivatives?.data;
+    if (derivatives) {
+      console.log('   Derivatives data type:', typeof derivatives, Array.isArray(derivatives) ? `(array of ${derivatives.length})` : '');
+      if (Array.isArray(derivatives) && derivatives.length > 0) {
+        derivativeUrn = derivatives[0].id;
+      } else if (derivatives.id) {
+        // Single object format
+        derivativeUrn = derivatives.id;
+      }
+    }
+    
+    // Option 2: For Navisworks/federated models, use the version URN directly
+    if (!derivativeUrn) {
+      // The tip version ID is already a viewable URN for NWC files
+      // Format: urn:adsk.wipprod:fs.file:vf.{GUID}?version=N
+      console.log('   No derivatives found, using version URN directly');
+      derivativeUrn = tipVersionId;
+    }
+    
+    if (!derivativeUrn) {
+      console.log('⚠️ No derivative URN found');
+      console.log('   Full version relationships:', JSON.stringify(versionResponse.data.data.relationships, null, 2));
+      return res.json({
+        success: false,
+        message: 'No derivatives found. Model may need translation.',
+        tipVersionId: tipVersionId,
+        versionNumber: versionNumber,
+        fileName: fileName
+      });
+    }
+
+    console.log('✅ Found derivative URN:', derivativeUrn);
+
+    // Determine if derivativeUrn is already base64 or raw URN
+    // Raw URNs start with "urn:", base64 does not
+    let base64Urn;
+    if (derivativeUrn.startsWith('urn:')) {
+      // Raw URN - needs encoding (URL-safe base64)
+      base64Urn = Buffer.from(derivativeUrn).toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+      console.log('   Encoded raw URN to base64');
+    } else {
+      // Already base64 encoded
+      base64Urn = derivativeUrn;
+      console.log('   URN already base64 encoded');
+    }
+    
+    console.log('✅ Base64 URN for viewer:', base64Urn);
+    console.log('🎯 Viewable GUID:', VIEWABLE_GUID);
+
+    res.json({
+      success: true,
+      derivativeUrn: derivativeUrn,
+      base64Urn: base64Urn,
+      viewableGuid: VIEWABLE_GUID,
+      tipVersionId: tipVersionId,
+      versionNumber: versionNumber,
+      fileName: fileName,
+      projectId: PROJECT_ID
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching latest model:', error.response?.data || error.message);
+    res.status(500).json({ 
+      error: 'Failed to get latest model version',
+      details: error.response?.data || error.message 
+    });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
